@@ -11,9 +11,17 @@ struct Player {
     pos: Vector2,
     vel: Vector2,
     dir: Vector2,
-    health: f32,
-    time_since_last_exaust: f32,
+    parts: Vec<Part>,
+    time_since_last_exaust_1: f32,
+    time_since_last_exaust_2: f32,
     time_since_last_bullet: f32,
+}
+
+struct Part {
+    pos: Vector2,
+    location: Vector2,
+    health: f32,
+    size: f32,
 }
 #[derive(Clone)]
 struct Enemy {
@@ -60,7 +68,7 @@ enum ParticalShape {
 }
 
 fn main() {
-    let debug = false;
+    let debug = true;
     let (mut rl, thread) = raylib::init()
         .size(1090, 720)
         .title("Hello, World")
@@ -71,8 +79,28 @@ fn main() {
         pos: Vector2 { x: 50.0, y: 50.0 },
         vel: Vector2 { x: 10.0, y: 0.0 },
         dir: Vector2 { x: 0.0, y: 1.0 },
-        health: 2.0,
-        time_since_last_exaust: 0.0,
+        parts: vec![
+            Part {
+                pos: Vector2::zero(),
+                location: Vector2 { x: 17.0, y: -15.0 },
+                health: 2.0,
+                size: 15.0,
+            },
+            Part {
+                pos: Vector2::zero(),
+                location: Vector2 { x: -17.0, y: -15.0 },
+                health: 2.0,
+                size: 15.0,
+            },
+            Part {
+                pos: Vector2::zero(),
+                location: Vector2 { x: 0.0, y: 15.0 },
+                health: 1.0,
+                size: 20.0,
+            },
+        ],
+        time_since_last_exaust_1: 0.0,
+        time_since_last_exaust_2: 0.0,
         time_since_last_bullet: 0.0,
     };
 
@@ -89,143 +117,170 @@ fn main() {
     let mut v1_spawn_interval = 6.0;
     let mut v1_spawn_time = 0.0;
 
+    let mut pause: bool = true;
     let mut time = 0.0;
     while !rl.window_should_close() {
         let dt = rl.get_frame_time();
-        time += dt;
+        if pause {
+            time += dt;
+        }
 
         let screenwidth = rl.get_screen_width();
         let screenheight = rl.get_screen_height();
-
-        while v1_spawn_time > v1_spawn_interval {
-            v1_spawn_time -= v1_spawn_interval;
-            v1_spawn_interval = f32::max(v1_spawn_interval - 0.1, 1.0);
-            enemies.push(Enemy {
-                name: format!("Basic"),
-                pos: player.pos
-                    + angletovector(
-                        rand::thread_rng().gen_range(-std::f32::consts::PI..std::f32::consts::PI),
-                    ) * 2000.0,
-                vel: Vector2 { x: 0.0, y: 0.0 },
-                dir: Vector2 { x: 0.0, y: 1.0 },
-                targetpos: Vector2 { x: 200.0, y: 200.0 },
-                speed: 600.0,
-                turningspeed: 100.0,
-                predictive: false,
-                texture_scale: 1.0,
-                friction: 1.0,
-                size: 16.0,
-                health: 1.0,
-                time_since_last_exaust: 0.0,
-                exaust_rate: 1.0 / 400.0,
-            });
+        if pause {
+            while v1_spawn_time > v1_spawn_interval {
+                v1_spawn_time -= v1_spawn_interval;
+                v1_spawn_interval = f32::max(v1_spawn_interval - 0.1, 1.0);
+                enemies.push(Enemy {
+                    name: format!("Basic"),
+                    pos: player.pos
+                        + angletovector(
+                            rand::thread_rng()
+                                .gen_range(-std::f32::consts::PI..std::f32::consts::PI),
+                        ) * 2000.0,
+                    vel: Vector2 { x: 0.0, y: 0.0 },
+                    dir: Vector2 { x: 0.0, y: 1.0 },
+                    targetpos: Vector2 { x: 200.0, y: 200.0 },
+                    speed: 600.0,
+                    turningspeed: 100.0,
+                    predictive: false,
+                    texture_scale: 1.0,
+                    friction: 1.0,
+                    size: 16.0,
+                    health: 1.0,
+                    time_since_last_exaust: 0.0,
+                    exaust_rate: 1.0 / 400.0,
+                });
+            }
+            v1_spawn_time += dt;
         }
-        v1_spawn_time += dt;
-
-        if rl.is_key_down(KeyboardKey::KEY_A) {
-            player.dir =
-                angletovector(vectortoangle(player.dir) - (PLAYERTURNSPEED.to_radians() * dt));
+        if pause {
+            if rl.is_key_down(KeyboardKey::KEY_A) {
+                player.dir = angletovector(
+                    vectortoangle(player.dir)
+                        - (PLAYERTURNSPEED.to_radians() * (player.parts[1].health / 2.0) * dt),
+                );
+            }
+            if rl.is_key_down(KeyboardKey::KEY_D) {
+                player.dir = angletovector(
+                    vectortoangle(player.dir)
+                        + (PLAYERTURNSPEED.to_radians() * (player.parts[0].health / 2.0) * dt),
+                );
+            }
         }
-        if rl.is_key_down(KeyboardKey::KEY_D) {
-            player.dir =
-                angletovector(vectortoangle(player.dir) + (PLAYERTURNSPEED.to_radians() * dt));
+        if pause {
+            player.vel += player.dir.normalized()
+                * (PLAYERSPEED
+                    - (player.vel.length()
+                        * (2.0 + (player.vel.normalized().dot(player.dir) - 1.0))
+                        / 2.0))
+                * dt;
         }
-
-        player.vel += player.dir.normalized()
-            * (PLAYERSPEED
-                - (player.vel.length() * (2.0 + (player.vel.normalized().dot(player.dir) - 1.0))
-                    / 2.0))
-            * dt;
-
         let right = rotatevector(player.dir, std::f32::consts::PI / 2.0);
-        player.vel -= right * (right.dot(player.vel)) * 1.0 * dt;
-        player.pos += player.vel * dt;
-
-        let exaust_rate: f32 = 1.0 / 400.0;
-        while player.time_since_last_exaust > exaust_rate {
-            particals.push(Partical {
-                pos: player.pos - player.dir * 26.0 + right * 21.0,
-                vel: player.vel
-                    + -player.dir * 400.0
-                    + angletovector(
-                        rand::thread_rng().gen_range(-std::f32::consts::PI..std::f32::consts::PI),
-                    ) * rand::thread_rng().gen_range(20.0..40.0),
-                size: 5.0,
-                shape: ParticalShape::Square,
-                starting_color: Color {
-                    r: 140,
-                    g: 255,
-                    b: 251,
-                    a: 255,
-                },
-                ending_color: Color {
-                    r: 255,
-                    g: 0,
-                    b: 50,
-                    a: 0,
-                },
-                duration: 1.0,
-                time: 0.0,
-            });
-            particals.push(Partical {
-                pos: player.pos - player.dir * 26.0 - right * 21.0,
-                vel: player.vel
-                    + -player.dir * 400.0
-                    + angletovector(
-                        rand::thread_rng().gen_range(-std::f32::consts::PI..std::f32::consts::PI),
-                    ) * rand::thread_rng().gen_range(20.0..60.0),
-                size: 5.0,
-                shape: ParticalShape::Square,
-                starting_color: Color {
-                    r: 140,
-                    g: 255,
-                    b: 251,
-                    a: 255,
-                },
-                ending_color: Color {
-                    r: 255,
-                    g: 0,
-                    b: 50,
-                    a: 0,
-                },
-                duration: 1.0,
-                time: 0.0,
-            });
-            player.time_since_last_exaust -= exaust_rate;
+        if pause {
+            player.vel -= right * (right.dot(player.vel)) * 1.0 * dt;
+            player.pos += player.vel * dt;
         }
-        player.time_since_last_exaust += dt;
-
+        for part in &mut player.parts {
+            part.pos = player.pos
+                + rotatevector(
+                    part.location,
+                    vectortoangle(player.dir) - std::f32::consts::PI / 2.0,
+                )
+        }
+        if pause {
+            let exaust_rate_1: f32 = 1.0 / 400.0 * (player.parts[1].health / 2.0);
+            while player.time_since_last_exaust_1 > exaust_rate_1 {
+                particals.push(Partical {
+                    pos: player.pos - player.dir * 26.0 + right * 21.0,
+                    vel: player.vel
+                        + -player.dir * 400.0 * (player.parts[1].health / 2.0)
+                        + angletovector(
+                            rand::thread_rng()
+                                .gen_range(-std::f32::consts::PI..std::f32::consts::PI),
+                        ) * rand::thread_rng().gen_range(20.0..40.0),
+                    size: 5.0,
+                    shape: ParticalShape::Square,
+                    starting_color: Color {
+                        r: 140,
+                        g: 255,
+                        b: 251,
+                        a: 255,
+                    },
+                    ending_color: Color {
+                        r: 255,
+                        g: 0,
+                        b: 50,
+                        a: 0,
+                    },
+                    duration: 1.0,
+                    time: 0.0,
+                });
+                player.time_since_last_exaust_1 -= exaust_rate_1;
+            }
+            let exaust_rate_2: f32 = 1.0 / 400.0 * (player.parts[0].health / 2.0);
+            while player.time_since_last_exaust_2 > exaust_rate_2 {
+                particals.push(Partical {
+                    pos: player.pos - player.dir * 26.0 - right * 21.0,
+                    vel: player.vel
+                        + -player.dir * 400.0 * (player.parts[0].health / 2.0)
+                        + angletovector(
+                            rand::thread_rng()
+                                .gen_range(-std::f32::consts::PI..std::f32::consts::PI),
+                        ) * rand::thread_rng().gen_range(20.0..60.0),
+                    size: 5.0,
+                    shape: ParticalShape::Square,
+                    starting_color: Color {
+                        r: 140,
+                        g: 255,
+                        b: 251,
+                        a: 255,
+                    },
+                    ending_color: Color {
+                        r: 255,
+                        g: 0,
+                        b: 50,
+                        a: 0,
+                    },
+                    duration: 1.0,
+                    time: 0.0,
+                });
+                player.time_since_last_exaust_2 -= exaust_rate_2;
+            }
+            player.time_since_last_exaust_1 += dt;
+            player.time_since_last_exaust_2 += dt;
+        }
         let mut fire: bool = false;
         for enemy in &enemies {
             if ((enemy.pos - player.pos).normalized().dot(player.dir) - 1.0).abs() < 0.25 {
                 fire = true
             }
         }
-
-        let bullet_rate: f32 = 1.0 / 10.0;
-        while player.time_since_last_bullet > bullet_rate {
-            if fire {
-                bullets.push(Bullet {
-                    pos: player.pos + player.dir * 10.0 + right * 14.0,
-                    vel: player.vel + player.dir * 500.0,
-                    size: 5.0,
-                    friendly: true,
-                    duration: 2.0,
-                    time: 0.0,
-                });
-                bullets.push(Bullet {
-                    pos: player.pos + player.dir * 10.0 - right * 14.0,
-                    vel: player.vel + player.dir * 500.0,
-                    size: 5.0,
-                    friendly: true,
-                    duration: 2.0,
-                    time: 0.0,
-                });
+        if pause {
+            let bullet_rate: f32 = 1.0 / 10.0;
+            while player.time_since_last_bullet > bullet_rate {
+                if fire {
+                    bullets.push(Bullet {
+                        pos: player.pos + player.dir * 10.0 + right * 14.0,
+                        vel: player.vel + player.dir * 500.0,
+                        size: 5.0,
+                        friendly: true,
+                        duration: 2.0,
+                        time: 0.0,
+                    });
+                    bullets.push(Bullet {
+                        pos: player.pos + player.dir * 10.0 - right * 14.0,
+                        vel: player.vel + player.dir * 500.0,
+                        size: 5.0,
+                        friendly: true,
+                        duration: 2.0,
+                        time: 0.0,
+                    });
+                }
+                player.time_since_last_bullet -= bullet_rate
             }
-            player.time_since_last_bullet -= bullet_rate
+            player.time_since_last_bullet += dt;
         }
-        player.time_since_last_bullet += dt;
-
         for enemy_index in 0..enemies.len() {
             let enemy = &mut enemies[enemy_index];
             if enemy.predictive {
@@ -245,78 +300,85 @@ fn main() {
                 enemy.dir =
                     angletovector(vectortoangle(enemy.dir) - (enemy.turningspeed.to_radians() * dt))
             }
+            if pause {
+                enemy.vel += enemy.dir.normalized()
+                    * (enemy.speed
+                        - (enemy.vel.length()
+                            * (2.0 + (enemy.vel.normalized().dot(enemy.dir) - 1.0))
+                            / 2.0))
+                    * dt;
 
-            enemy.vel += enemy.dir.normalized()
-                * (enemy.speed
-                    - (enemy.vel.length() * (2.0 + (enemy.vel.normalized().dot(enemy.dir) - 1.0))
-                        / 2.0))
-                * dt;
+                enemy.vel -= right * (right.dot(enemy.vel)) * enemy.friction * dt;
 
-            enemy.vel -= right * (right.dot(enemy.vel)) * enemy.friction * dt;
+                enemy.pos += enemy.vel * dt;
 
-            enemy.pos += enemy.vel * dt;
-
-            while enemy.time_since_last_exaust > enemy.exaust_rate {
-                particals.push(Partical {
-                    pos: enemy.pos - enemy.dir * 13.0 + right * 0.0,
-                    vel: enemy.vel
-                        + -enemy.dir * 200.0
-                        + angletovector(
-                            rand::thread_rng()
-                                .gen_range(-std::f32::consts::PI..std::f32::consts::PI),
-                        ) * rand::thread_rng().gen_range(20.0..40.0),
-                    size: 5.0,
-                    shape: ParticalShape::Square,
-                    starting_color: Color {
-                        r: 255,
-                        g: 255,
-                        b: 0,
-                        a: 255,
-                    },
-                    ending_color: Color {
-                        r: 255,
-                        g: 0,
-                        b: 50,
-                        a: 0,
-                    },
-                    duration: 1.0,
-                    time: 0.0,
-                });
-                enemy.time_since_last_exaust -= enemy.exaust_rate;
-            }
-            enemy.time_since_last_exaust += dt;
-            if enemy.pos.distance_to(player.pos) < PLAYERSIZE + enemy.size {
-                enemy.health = -1.0;
-                particals = enemy_dies(enemy.pos, enemy.vel, particals);
+                while enemy.time_since_last_exaust > enemy.exaust_rate {
+                    particals.push(Partical {
+                        pos: enemy.pos - enemy.dir * 13.0 + right * 0.0,
+                        vel: enemy.vel
+                            + -enemy.dir * 200.0
+                            + angletovector(
+                                rand::thread_rng()
+                                    .gen_range(-std::f32::consts::PI..std::f32::consts::PI),
+                            ) * rand::thread_rng().gen_range(20.0..40.0),
+                        size: 5.0,
+                        shape: ParticalShape::Square,
+                        starting_color: Color {
+                            r: 255,
+                            g: 255,
+                            b: 0,
+                            a: 255,
+                        },
+                        ending_color: Color {
+                            r: 255,
+                            g: 0,
+                            b: 50,
+                            a: 0,
+                        },
+                        duration: 1.0,
+                        time: 0.0,
+                    });
+                    enemy.time_since_last_exaust -= enemy.exaust_rate;
+                }
+                enemy.time_since_last_exaust += dt;
+                for part in &mut player.parts {
+                    if enemy.pos.distance_to(part.pos) < part.size + enemy.size {
+                        enemy.health = -1.0;
+                        particals = enemy_dies(enemy.pos, enemy.vel, particals);
+                        part.health -= 1.0;
+                    }
+                }
             }
             bullets.retain(|bullet| {
                 bullet.pos.distance_to(enemy.pos) > bullet.size * 2.0 + enemy.size
             });
-
-            for other_enemy_index in 0..enemies.len() {
-                let Some((enemy, other_enemy)) =
-                    get_2_mut(&mut enemies, enemy_index, other_enemy_index)
-                else {
-                    continue;
-                };
-                if enemy.pos.distance_to(other_enemy.pos) < other_enemy.size + enemy.size {
-                    enemy.health = -1.0;
-                    other_enemy.health = -1.0;
-                    particals = enemy_dies(enemy.pos, enemy.vel, particals);
-                    particals = enemy_dies(other_enemy.pos, other_enemy.vel, particals);
-                };
+            if pause {
+                for other_enemy_index in 0..enemies.len() {
+                    let Some((enemy, other_enemy)) =
+                        get_2_mut(&mut enemies, enemy_index, other_enemy_index)
+                    else {
+                        continue;
+                    };
+                    if enemy.pos.distance_to(other_enemy.pos) < other_enemy.size + enemy.size {
+                        enemy.health = -1.0;
+                        other_enemy.health = -1.0;
+                        particals = enemy_dies(enemy.pos, enemy.vel, particals);
+                        particals = enemy_dies(other_enemy.pos, other_enemy.vel, particals);
+                    };
+                }
             }
         }
         enemies.retain(|enemy| (enemy.health > 0.0));
-
-        for bullet in &mut bullets {
-            bullet.pos += bullet.vel * dt;
-            bullet.time += dt;
-            for enemy in &mut enemies {
-                if bullet.pos.distance_to(enemy.pos) < bullet.size * 2.0 + enemy.size {
-                    enemy.health -= 1.0 - bullet.time / bullet.duration;
-                    if enemy.health <= 0.0 {
-                        particals = enemy_dies(enemy.pos, enemy.vel, particals)
+        if pause {
+            for bullet in &mut bullets {
+                bullet.pos += bullet.vel * dt;
+                bullet.time += dt;
+                for enemy in &mut enemies {
+                    if bullet.pos.distance_to(enemy.pos) < bullet.size * 2.0 + enemy.size {
+                        enemy.health -= 1.0 - bullet.time / bullet.duration;
+                        if enemy.health <= 0.0 {
+                            particals = enemy_dies(enemy.pos, enemy.vel, particals)
+                        }
                     }
                 }
             }
@@ -337,17 +399,11 @@ fn main() {
             d.draw_line(0, pos, screenwidth, pos, Color::BLACK)
         }
 
-        if debug {
-            d.draw_circle_v(
-                Vector2::new(screenwidth as f32 / 2.0, screenheight as f32 / 2.0),
-                PLAYERSIZE,
-                Color::GREEN,
-            );
-        }
-
         for partical in &mut particals {
-            partical.pos += partical.vel * dt;
-            partical.time += dt;
+            if pause {
+                partical.pos += partical.vel * dt;
+                partical.time += dt;
+            }
             let lerped_color = colorlerp(
                 partical.starting_color,
                 partical.ending_color,
@@ -376,6 +432,25 @@ fn main() {
             }
         }
         particals.retain(|partical| partical.time < partical.duration);
+
+        //if debug {
+        //    d.draw_circle_v(
+        //        Vector2::new(screenwidth as f32 / 2.0, screenheight as f32 / 2.0),
+        //        PLAYERSIZE,
+        //        Color::GREEN,
+        //    );
+        //}
+
+        if debug {
+            for part in &player.parts {
+                d.draw_circle_v(
+                    Vector2::new(screenwidth as f32 / 2.0, screenheight as f32 / 2.0) + part.pos
+                        - player.pos,
+                    part.size,
+                    Color::GREEN,
+                );
+            }
+        }
 
         let ship_scale = 2.0;
         d.draw_texture_pro(
@@ -472,7 +547,6 @@ fn main() {
             Color::WHITE,
         );
 
-
         d.draw_text(
             format!("Pos: {:.2}, {:.2}", player.pos.x, player.pos.y).as_str(),
             5,
@@ -508,6 +582,12 @@ fn main() {
             18,
             Color::WHITE,
         );
+
+        for part in &player.parts {
+            if part.health <= 0.0 {
+                pause = false
+            }
+        }
     }
 }
 
