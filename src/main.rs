@@ -46,14 +46,14 @@ struct Partical {
     pos: Vector2,
     vel: Vector2,
     size: f32,
-    shape: ExaustShape,
+    shape: ParticalShape,
     starting_color: Color,
     ending_color: Color,
     duration: f32,
     time: f32,
 }
 
-enum ExaustShape {
+enum ParticalShape {
     Square,
     Circle,
     RotSquare,
@@ -62,7 +62,7 @@ enum ExaustShape {
 fn main() {
     let debug = false;
     let (mut rl, thread) = raylib::init()
-        .size(640, 480)
+        .size(1090, 720)
         .title("Hello, World")
         .resizable()
         .build();
@@ -82,47 +82,45 @@ fn main() {
 
     let mut particals: Vec<Partical> = vec![];
 
-    enemies.push(Enemy {
-        name: format!("Basic"),
-        pos: Vector2 { x: 900.0, y: 500.0 },
-        vel: Vector2 { x: 10.0, y: 0.0 },
-        dir: Vector2 { x: 0.0, y: 1.0 },
-        targetpos: Vector2 { x: 200.0, y: 200.0 },
-        speed: 600.0,
-        turningspeed: 100.0,
-        predictive: false,
-        texture_scale: 1.0,
-        friction: 1.0,
-        size: 16.0,
-        health: 1.0,
-        time_since_last_exaust: 0.0,
-        exaust_rate: 1.0 / 400.0,
-    });
-    enemies.push(Enemy {
-        name: format!("Basic"),
-        pos: Vector2 { x: 900.0, y: 250.0 },
-        vel: Vector2 { x: 10.0, y: 0.0 },
-        dir: Vector2 { x: 0.0, y: 1.0 },
-        targetpos: Vector2 { x: 200.0, y: 200.0 },
-        speed: 600.0,
-        turningspeed: 100.0,
-        predictive: false,
-        texture_scale: 1.0,
-        friction: 1.0,
-        size: 16.0,
-        health: 1.0,
-        time_since_last_exaust: 0.0,
-        exaust_rate: 1.0 / 400.0,
-    });
-
     let basic_enemy_image = rl.load_texture(&thread, "Images/V1Enemy.png").unwrap();
-
     let ship_image = rl.load_texture(&thread, "Images/V1Ship.png").unwrap();
+    let enemy_warning_image = rl.load_texture(&thread, "Images/EnemyWarning.png").unwrap();
+
+    let mut v1_spawn_interval = 6.0;
+    let mut v1_spawn_time = 0.0;
+
+    let mut time = 0.0;
     while !rl.window_should_close() {
         let dt = rl.get_frame_time();
+        time += dt;
 
         let screenwidth = rl.get_screen_width();
         let screenheight = rl.get_screen_height();
+
+        while v1_spawn_time > v1_spawn_interval {
+            v1_spawn_time -= v1_spawn_interval;
+            v1_spawn_interval = f32::max(v1_spawn_interval - 0.1, 1.0);
+            enemies.push(Enemy {
+                name: format!("Basic"),
+                pos: player.pos
+                    + angletovector(
+                        rand::thread_rng().gen_range(-std::f32::consts::PI..std::f32::consts::PI),
+                    ) * 2000.0,
+                vel: Vector2 { x: 0.0, y: 0.0 },
+                dir: Vector2 { x: 0.0, y: 1.0 },
+                targetpos: Vector2 { x: 200.0, y: 200.0 },
+                speed: 600.0,
+                turningspeed: 100.0,
+                predictive: false,
+                texture_scale: 1.0,
+                friction: 1.0,
+                size: 16.0,
+                health: 1.0,
+                time_since_last_exaust: 0.0,
+                exaust_rate: 1.0 / 400.0,
+            });
+        }
+        v1_spawn_time += dt;
 
         if rl.is_key_down(KeyboardKey::KEY_A) {
             player.dir =
@@ -153,7 +151,7 @@ fn main() {
                         rand::thread_rng().gen_range(-std::f32::consts::PI..std::f32::consts::PI),
                     ) * rand::thread_rng().gen_range(20.0..40.0),
                 size: 5.0,
-                shape: ExaustShape::Square,
+                shape: ParticalShape::Square,
                 starting_color: Color {
                     r: 140,
                     g: 255,
@@ -177,7 +175,7 @@ fn main() {
                         rand::thread_rng().gen_range(-std::f32::consts::PI..std::f32::consts::PI),
                     ) * rand::thread_rng().gen_range(20.0..60.0),
                 size: 5.0,
-                shape: ExaustShape::Square,
+                shape: ParticalShape::Square,
                 starting_color: Color {
                     r: 140,
                     g: 255,
@@ -199,7 +197,7 @@ fn main() {
 
         let mut fire: bool = false;
         for enemy in &enemies {
-            if ((enemy.pos -player.pos).normalized().dot(player.dir) - 1.0).abs() < 0.1 {
+            if ((enemy.pos - player.pos).normalized().dot(player.dir) - 1.0).abs() < 0.25 {
                 fire = true
             }
         }
@@ -268,7 +266,7 @@ fn main() {
                                 .gen_range(-std::f32::consts::PI..std::f32::consts::PI),
                         ) * rand::thread_rng().gen_range(20.0..40.0),
                     size: 5.0,
-                    shape: ExaustShape::Square,
+                    shape: ParticalShape::Square,
                     starting_color: Color {
                         r: 255,
                         g: 255,
@@ -316,7 +314,7 @@ fn main() {
             bullet.time += dt;
             for enemy in &mut enemies {
                 if bullet.pos.distance_to(enemy.pos) < bullet.size * 2.0 + enemy.size {
-                    enemy.health -= 1.0;
+                    enemy.health -= 1.0 - bullet.time / bullet.duration;
                     if enemy.health <= 0.0 {
                         particals = enemy_dies(enemy.pos, enemy.vel, particals)
                     }
@@ -356,7 +354,7 @@ fn main() {
                 partical.time / partical.duration,
             );
             match partical.shape {
-                ExaustShape::Square => d.draw_rectangle_v(
+                ParticalShape::Square => d.draw_rectangle_v(
                     Vector2::new(
                         partical.pos.x - player.pos.x + screenwidth as f32 / 2.0
                             - partical.size / 2.0,
@@ -366,7 +364,7 @@ fn main() {
                     Vector2::new(partical.size, partical.size),
                     lerped_color,
                 ),
-                ExaustShape::Circle => d.draw_circle_v(
+                ParticalShape::Circle => d.draw_circle_v(
                     Vector2::new(
                         partical.pos.x - player.pos.x + screenwidth as f32 / 2.0,
                         partical.pos.y - player.pos.y + screenheight as f32 / 2.0,
@@ -374,7 +372,7 @@ fn main() {
                     partical.size / 2.0,
                     lerped_color,
                 ),
-                ExaustShape::RotSquare => {}
+                ParticalShape::RotSquare => {}
             }
         }
         particals.retain(|partical| partical.time < partical.duration);
@@ -406,6 +404,10 @@ fn main() {
                     Color::RED,
                 );
             }
+            let pos = Vector2::new(
+                enemy.pos.x - player.pos.x + screenwidth as f32 / 2.0,
+                enemy.pos.y - player.pos.y + screenheight as f32 / 2.0,
+            );
             d.draw_texture_pro(
                 &basic_enemy_image,
                 Rectangle::new(
@@ -415,8 +417,8 @@ fn main() {
                     basic_enemy_image.height as f32,
                 ),
                 Rectangle::new(
-                    enemy.pos.x - player.pos.x + screenwidth as f32 / 2.0,
-                    enemy.pos.y - player.pos.y + screenheight as f32 / 2.0,
+                    pos.x,
+                    pos.y,
                     basic_enemy_image.width as f32 * enemy.texture_scale,
                     basic_enemy_image.height as f32 * enemy.texture_scale,
                 ),
@@ -427,6 +429,18 @@ fn main() {
                 vectortoangle(enemy.dir).to_degrees() + 90.0,
                 Color::WHITE,
             );
+            if player.pos.distance_to(enemy.pos) > 170.0 {
+                d.draw_texture_v(
+                    &enemy_warning_image,
+                    (enemy.pos - player.pos).normalized() * 170.0
+                        + Vector2::new(screenwidth as f32 / 2.0, screenheight as f32 / 2.0)
+                        - Vector2::new(
+                            enemy_warning_image.width as f32 / 2.0,
+                            enemy_warning_image.height as f32 / 2.0,
+                        ),
+                    Color::WHITE,
+                )
+            }
         }
 
         for bullet in &bullets {
@@ -449,6 +463,15 @@ fn main() {
                 color,
             )
         }
+
+        d.draw_text(
+            format!("Time: {:.2}", time).as_str(),
+            screenwidth / 2 - 50,
+            10,
+            36,
+            Color::WHITE,
+        );
+
 
         d.draw_text(
             format!("Pos: {:.2}, {:.2}", player.pos.x, player.pos.y).as_str(),
@@ -563,7 +586,7 @@ fn particalexplosion(
                     rand::thread_rng().gen_range(-std::f32::consts::PI..std::f32::consts::PI),
                 ) * rand::thread_rng().gen_range(force_min..force_max),
             size: 5.0,
-            shape: ExaustShape::Square,
+            shape: ParticalShape::Square,
             starting_color: start_color,
             ending_color: ending_color,
             duration: duration,
