@@ -199,7 +199,7 @@ fn main() {
 
         let mut fire: bool = false;
         for enemy in &enemies {
-            if dbg!((enemy.pos -player.pos).normalized().dot(player.dir) - 1.0).abs() < 0.1 {
+            if ((enemy.pos -player.pos).normalized().dot(player.dir) - 1.0).abs() < 0.1 {
                 fire = true
             }
         }
