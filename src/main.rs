@@ -6,17 +6,16 @@ use raylib::prelude::*;
 const PLAYERSPEED: f32 = 250.0;
 const PLAYERTURNSPEED: f32 = 100.0;
 const PLAYERSIZE: f32 = 30.0;
-
+#[derive(Clone)]
 struct Player {
     pos: Vector2,
     vel: Vector2,
     dir: Vector2,
     parts: Vec<Part>,
-    time_since_last_exaust_1: f32,
-    time_since_last_exaust_2: f32,
-    time_since_last_bullet: f32,
+    partical_emmiters: Vec<ParticalEmitter>,
+    bullet_emmiters: Vec<BulletEmitter>,
 }
-
+#[derive(Clone)]
 struct Part {
     pos: Vector2,
     location: Vector2,
@@ -37,10 +36,10 @@ struct Enemy {
     friction: f32,
     size: f32,
     health: f32,
-    time_since_last_exaust: f32,
-    exaust_rate: f32,
+    partical_emmiters: Vec<ParticalEmitter>,
+    bullet_emmiters: Vec<BulletEmitter>,
 }
-
+#[derive(Clone)]
 struct Bullet {
     pos: Vector2,
     vel: Vector2,
@@ -49,7 +48,7 @@ struct Bullet {
     duration: f32,
     time: f32,
 }
-
+#[derive(Clone)]
 struct Partical {
     pos: Vector2,
     vel: Vector2,
@@ -60,7 +59,31 @@ struct Partical {
     duration: f32,
     time: f32,
 }
+#[derive(Clone)]
+struct ParticalEmitter {
+    pos: Vector2,
+    location: Vector2,
+    vel: Vector2,
+    size: f32,
+    shape: ParticalShape,
+    starting_color: Color,
+    ending_color: Color,
+    duration: f32,
+    partical_interval: f32,
+    time: f32,
+}
 
+struct BulletEmitter {
+    pos: Vector2,
+    location: Vector2,
+    size: f32,
+    friendly: bool,
+    duration: f32,
+    bullet_interval: f32,
+    time: f32,
+}
+
+#[derive(Clone)]
 enum ParticalShape {
     Square,
     Circle,
@@ -68,7 +91,7 @@ enum ParticalShape {
 }
 
 fn main() {
-    let debug = true;
+    let debug = false;
     let (mut rl, thread) = raylib::init()
         .size(1090, 720)
         .title("Hello, World")
@@ -99,9 +122,61 @@ fn main() {
                 size: 20.0,
             },
         ],
-        time_since_last_exaust_1: 0.0,
-        time_since_last_exaust_2: 0.0,
-        time_since_last_bullet: 0.0,
+        partical_emmiters: vec![
+            ParticalEmitter {
+                pos: Vector2::zero(),
+                location: Vector2::new(21.0, -26.0),
+                vel: Vector2::zero(),
+                size: 5.0,
+                shape: ParticalShape::Square,
+                starting_color: Color {
+                    r: 140,
+                    g: 255,
+                    b: 251,
+                    a: 255,
+                },
+                ending_color: Color {
+                    r: 255,
+                    g: 0,
+                    b: 50,
+                    a: 0,
+                },
+                duration: 1.0,
+                partical_interval: 1.0 / 400.0,
+                time: 0.0,
+            },
+            ParticalEmitter {
+                pos: Vector2::zero(),
+                location: Vector2::new(-21.0, -26.0),
+                vel: Vector2::zero(),
+                size: 5.0,
+                shape: ParticalShape::Square,
+                starting_color: Color {
+                    r: 140,
+                    g: 255,
+                    b: 251,
+                    a: 255,
+                },
+                ending_color: Color {
+                    r: 255,
+                    g: 0,
+                    b: 50,
+                    a: 0,
+                },
+                duration: 1.0,
+                partical_interval: 1.0 / 400.0,
+                time: 0.0,
+            },
+        ],
+        bullet_emmiters: vec![BulletEmitter {
+            pos: Vector2::zero(),
+            location: todo!(),
+            size: todo!(),
+            friendly: todo!(),
+            duration: todo!(),
+            bullet_interval: todo!(),
+            time: todo!(),
+        }],
     };
 
     let mut enemies: Vec<Enemy> = vec![];
@@ -148,8 +223,29 @@ fn main() {
                     friction: 1.0,
                     size: 16.0,
                     health: 1.0,
-                    time_since_last_exaust: 0.0,
-                    exaust_rate: 1.0 / 400.0,
+                    partical_emmiters: vec![ParticalEmitter {
+                        pos: Vector2::zero(),
+                        location: Vector2 { x: 0.0, y: -13.0 },
+                        vel: Vector2::zero(),
+                        size: 5.0,
+                        shape: ParticalShape::Square,
+                        starting_color: Color {
+                            r: 255,
+                            g: 255,
+                            b: 0,
+                            a: 255,
+                        },
+                        ending_color: Color {
+                            r: 255,
+                            g: 0,
+                            b: 50,
+                            a: 0,
+                        },
+                        duration: 1.0,
+                        partical_interval: 1.0 / 400.0,
+                        time,
+                    }],
+                    bullet_emmiters: vec![],
                 });
             }
             v1_spawn_time += dt;
@@ -158,19 +254,23 @@ fn main() {
             if rl.is_key_down(KeyboardKey::KEY_A) {
                 player.dir = angletovector(
                     vectortoangle(player.dir)
-                        - (PLAYERTURNSPEED.to_radians() * (player.parts[1].health / 2.0) * dt),
+                        - (PLAYERTURNSPEED.to_radians() * (player.parts[1].health / 2.0)
+                            / (player.parts[0].health / 2.0)
+                            * dt),
                 );
             }
             if rl.is_key_down(KeyboardKey::KEY_D) {
                 player.dir = angletovector(
                     vectortoangle(player.dir)
-                        + (PLAYERTURNSPEED.to_radians() * (player.parts[0].health / 2.0) * dt),
+                        + (PLAYERTURNSPEED.to_radians() * (player.parts[0].health / 2.0)
+                            / (player.parts[1].health / 2.0)
+                            * dt),
                 );
             }
         }
         if pause {
             player.vel += player.dir.normalized()
-                * (PLAYERSPEED
+                * (PLAYERSPEED * ((player.parts[0].health + player.parts[1].health) / 4.0)
                     - (player.vel.length()
                         * (2.0 + (player.vel.normalized().dot(player.dir) - 1.0))
                         / 2.0))
@@ -188,68 +288,35 @@ fn main() {
                     vectortoangle(player.dir) - std::f32::consts::PI / 2.0,
                 )
         }
-        if pause {
-            let exaust_rate_1: f32 = 1.0 / 400.0 * (player.parts[1].health / 2.0);
-            while player.time_since_last_exaust_1 > exaust_rate_1 {
-                particals.push(Partical {
-                    pos: player.pos - player.dir * 26.0 + right * 21.0,
-                    vel: player.vel
-                        + -player.dir * 400.0 * (player.parts[1].health / 2.0)
-                        + angletovector(
-                            rand::thread_rng()
-                                .gen_range(-std::f32::consts::PI..std::f32::consts::PI),
-                        ) * rand::thread_rng().gen_range(20.0..40.0),
-                    size: 5.0,
-                    shape: ParticalShape::Square,
-                    starting_color: Color {
-                        r: 140,
-                        g: 255,
-                        b: 251,
-                        a: 255,
-                    },
-                    ending_color: Color {
-                        r: 255,
-                        g: 0,
-                        b: 50,
-                        a: 0,
-                    },
-                    duration: 1.0,
-                    time: 0.0,
-                });
-                player.time_since_last_exaust_1 -= exaust_rate_1;
+        for partical_emmiter in &mut player.partical_emmiters {
+            partical_emmiter.pos = player.pos
+                + rotatevector(
+                    partical_emmiter.location,
+                    vectortoangle(player.dir) - std::f32::consts::PI / 2.0,
+                );
+            partical_emmiter.vel = player.vel
+                + -player.dir * 400.0 * (player.parts[1].health / 2.0)
+                + angletovector(
+                    rand::thread_rng().gen_range(-std::f32::consts::PI..std::f32::consts::PI),
+                ) * rand::thread_rng().gen_range(20.0..40.0);
+            if pause {
+                while partical_emmiter.time > partical_emmiter.partical_interval {
+                    particals.push(Partical {
+                        pos: partical_emmiter.pos,
+                        vel: partical_emmiter.vel,
+                        size: partical_emmiter.size,
+                        shape: partical_emmiter.shape.clone(),
+                        starting_color: partical_emmiter.starting_color,
+                        ending_color: partical_emmiter.ending_color,
+                        duration: partical_emmiter.duration,
+                        time: 0.0,
+                    });
+                    partical_emmiter.time -= partical_emmiter.partical_interval;
+                }
+                partical_emmiter.time += dt;
             }
-            let exaust_rate_2: f32 = 1.0 / 400.0 * (player.parts[0].health / 2.0);
-            while player.time_since_last_exaust_2 > exaust_rate_2 {
-                particals.push(Partical {
-                    pos: player.pos - player.dir * 26.0 - right * 21.0,
-                    vel: player.vel
-                        + -player.dir * 400.0 * (player.parts[0].health / 2.0)
-                        + angletovector(
-                            rand::thread_rng()
-                                .gen_range(-std::f32::consts::PI..std::f32::consts::PI),
-                        ) * rand::thread_rng().gen_range(20.0..60.0),
-                    size: 5.0,
-                    shape: ParticalShape::Square,
-                    starting_color: Color {
-                        r: 140,
-                        g: 255,
-                        b: 251,
-                        a: 255,
-                    },
-                    ending_color: Color {
-                        r: 255,
-                        g: 0,
-                        b: 50,
-                        a: 0,
-                    },
-                    duration: 1.0,
-                    time: 0.0,
-                });
-                player.time_since_last_exaust_2 -= exaust_rate_2;
-            }
-            player.time_since_last_exaust_1 += dt;
-            player.time_since_last_exaust_2 += dt;
         }
+
         let mut fire: bool = false;
         for enemy in &enemies {
             if ((enemy.pos - player.pos).normalized().dot(player.dir) - 1.0).abs() < 0.25 {
@@ -257,7 +324,7 @@ fn main() {
             }
         }
         if pause {
-            let bullet_rate: f32 = 1.0 / 10.0;
+            for bullet
             while player.time_since_last_bullet > bullet_rate {
                 if fire {
                     bullets.push(Bullet {
@@ -312,40 +379,61 @@ fn main() {
 
                 enemy.pos += enemy.vel * dt;
 
-                while enemy.time_since_last_exaust > enemy.exaust_rate {
-                    particals.push(Partical {
-                        pos: enemy.pos - enemy.dir * 13.0 + right * 0.0,
-                        vel: enemy.vel
-                            + -enemy.dir * 200.0
-                            + angletovector(
-                                rand::thread_rng()
-                                    .gen_range(-std::f32::consts::PI..std::f32::consts::PI),
-                            ) * rand::thread_rng().gen_range(20.0..40.0),
-                        size: 5.0,
-                        shape: ParticalShape::Square,
-                        starting_color: Color {
-                            r: 255,
-                            g: 255,
-                            b: 0,
-                            a: 255,
-                        },
-                        ending_color: Color {
-                            r: 255,
-                            g: 0,
-                            b: 50,
-                            a: 0,
-                        },
-                        duration: 1.0,
-                        time: 0.0,
-                    });
-                    enemy.time_since_last_exaust -= enemy.exaust_rate;
+                for partical_emmiter in &mut enemy.partical_emmiters {
+                    partical_emmiter.pos = enemy.pos
+                        + rotatevector(
+                            partical_emmiter.location,
+                            vectortoangle(enemy.dir) - std::f32::consts::PI / 2.0,
+                        );
+                    partical_emmiter.vel = enemy.vel
+                        + -enemy.dir * 400.0
+                        + angletovector(
+                            rand::thread_rng()
+                                .gen_range(-std::f32::consts::PI..std::f32::consts::PI),
+                        ) * rand::thread_rng().gen_range(20.0..40.0);
+                    if pause {
+                        while partical_emmiter.time > partical_emmiter.partical_interval {
+                            particals.push(Partical {
+                                pos: partical_emmiter.pos,
+                                vel: partical_emmiter.vel,
+                                size: partical_emmiter.size,
+                                shape: partical_emmiter.shape.clone(),
+                                starting_color: partical_emmiter.starting_color,
+                                ending_color: partical_emmiter.ending_color,
+                                duration: partical_emmiter.duration,
+                                time: 0.0,
+                            });
+                            partical_emmiter.time -= partical_emmiter.partical_interval;
+                        }
+                        partical_emmiter.time += dt;
+                    }
                 }
-                enemy.time_since_last_exaust += dt;
                 for part in &mut player.parts {
                     if enemy.pos.distance_to(part.pos) < part.size + enemy.size {
                         enemy.health = -1.0;
                         particals = enemy_dies(enemy.pos, enemy.vel, particals);
                         part.health -= 1.0;
+                        particals = particalexplosion(
+                            particals,
+                            part.pos,
+                            player.vel,
+                            0.0,
+                            300.0,
+                            500,
+                            Color {
+                                r: 140,
+                                g: 255,
+                                b: 251,
+                                a: 255,
+                            },
+                            Color {
+                                r: 255,
+                                g: 0,
+                                b: 50,
+                                a: 0,
+                            },
+                            1.0,
+                        );
                     }
                 }
             }
