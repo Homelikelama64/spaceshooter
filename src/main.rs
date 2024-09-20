@@ -1,25 +1,33 @@
 use std::{borrow::Borrow, time};
 
-use rand::Rng;
+use noise::NoiseFn;
+use perlin2d::PerlinNoise2D;
+use rand::{rngs::StdRng, Rng, SeedableRng};
 use raylib::prelude::*;
 
 const PLAYERSPEED: f32 = 250.0;
-const PLAYERTURNSPEED: f32 = 100.0;
-const PLAYERSIZE: f32 = 30.0;
 #[derive(Clone)]
 struct Player {
     pos: Vector2,
     vel: Vector2,
     dir: Vector2,
+    speed_original: f32,
+    left_turn_original: f32,
+    right_turn_original: f32,
     parts: Vec<Part>,
+    damage: Vec<Damage>,
     partical_emmiters: Vec<ParticalEmitter>,
     bullet_emmiters: Vec<BulletEmitter>,
+    speed: f32,
+    left_turn: f32,
+    right_turn: f32,
 }
 #[derive(Clone)]
 struct Part {
     pos: Vector2,
     location: Vector2,
     health: f32,
+    starting_health: f32,
     size: f32,
 }
 #[derive(Clone)]
@@ -63,6 +71,7 @@ struct Partical {
 struct ParticalEmitter {
     pos: Vector2,
     location: Vector2,
+    speed_orginal:f32,
     vel: Vector2,
     size: f32,
     shape: ParticalShape,
@@ -71,8 +80,10 @@ struct ParticalEmitter {
     duration: f32,
     partical_interval: f32,
     time: f32,
+    speed:f32
 }
 
+#[derive(Clone)]
 struct BulletEmitter {
     pos: Vector2,
     location: Vector2,
@@ -84,6 +95,22 @@ struct BulletEmitter {
 }
 
 #[derive(Clone)]
+struct Damage {
+    src: Vec<usize>,
+    des: PartMod,
+    index: usize,
+}
+
+#[derive(Clone)]
+enum PartMod {
+    Partical,
+    Gun,
+    TurnLeft,
+    TurnRight,
+    Speed,
+}
+
+#[derive(Clone)]
 enum ParticalShape {
     Square,
     Circle,
@@ -91,7 +118,7 @@ enum ParticalShape {
 }
 
 fn main() {
-    let debug = false;
+    let mut debug = false;
     let (mut rl, thread) = raylib::init()
         .size(1090, 720)
         .title("Hello, World")
@@ -102,24 +129,57 @@ fn main() {
         pos: Vector2 { x: 50.0, y: 50.0 },
         vel: Vector2 { x: 10.0, y: 0.0 },
         dir: Vector2 { x: 0.0, y: 1.0 },
+        speed_original: 250.0,
+        left_turn_original: 100.0,
+        right_turn_original: 100.0,
         parts: vec![
             Part {
                 pos: Vector2::zero(),
                 location: Vector2 { x: 17.0, y: -15.0 },
                 health: 2.0,
+                starting_health: 2.0,
                 size: 15.0,
             },
             Part {
                 pos: Vector2::zero(),
                 location: Vector2 { x: -17.0, y: -15.0 },
                 health: 2.0,
+                starting_health: 2.0,
                 size: 15.0,
             },
             Part {
                 pos: Vector2::zero(),
                 location: Vector2 { x: 0.0, y: 15.0 },
                 health: 1.0,
+                starting_health: 2.0,
                 size: 20.0,
+            },
+        ],
+        damage: vec![
+            Damage {
+                src: vec![1],
+                des: PartMod::TurnLeft,
+                index: 0,
+            },
+            Damage {
+                src: vec![0],
+                des: PartMod::TurnRight,
+                index: 0,
+            },
+            Damage {
+                src: vec![0,1],
+                des: PartMod::Speed,
+                index: 0,
+            },
+            Damage {
+                src: vec![0],
+                des: PartMod::Partical,
+                index: 0,
+            },
+            Damage {
+                src: vec![1],
+                des: PartMod::Partical,
+                index: 1,
             },
         ],
         partical_emmiters: vec![
@@ -127,6 +187,7 @@ fn main() {
                 pos: Vector2::zero(),
                 location: Vector2::new(21.0, -26.0),
                 vel: Vector2::zero(),
+                speed_orginal:400.0,
                 size: 5.0,
                 shape: ParticalShape::Square,
                 starting_color: Color {
@@ -144,11 +205,13 @@ fn main() {
                 duration: 1.0,
                 partical_interval: 1.0 / 400.0,
                 time: 0.0,
+                speed: 0.0,
             },
             ParticalEmitter {
                 pos: Vector2::zero(),
                 location: Vector2::new(-21.0, -26.0),
                 vel: Vector2::zero(),
+                speed_orginal:400.0,
                 size: 5.0,
                 shape: ParticalShape::Square,
                 starting_color: Color {
@@ -166,17 +229,32 @@ fn main() {
                 duration: 1.0,
                 partical_interval: 1.0 / 400.0,
                 time: 0.0,
+                speed: 0.0,
             },
         ],
-        bullet_emmiters: vec![BulletEmitter {
-            pos: Vector2::zero(),
-            location: todo!(),
-            size: todo!(),
-            friendly: todo!(),
-            duration: todo!(),
-            bullet_interval: todo!(),
-            time: todo!(),
-        }],
+        bullet_emmiters: vec![
+            BulletEmitter {
+                pos: Vector2::zero(),
+                location: Vector2 { x: 17.0, y: 13.0 },
+                size: 5.0,
+                friendly: true,
+                duration: 2.0,
+                bullet_interval: 1.0 / 7.5,
+                time: 0.0,
+            },
+            BulletEmitter {
+                pos: Vector2::zero(),
+                location: Vector2 { x: -17.0, y: 13.0 },
+                size: 5.0,
+                friendly: true,
+                duration: 2.0,
+                bullet_interval: 1.0 / 5.0,
+                time: 1.0 / 7.5 / 2.0,
+            },
+        ],
+        speed: 0.0,
+        left_turn: 0.0,
+        right_turn: 0.0,
     };
 
     let mut enemies: Vec<Enemy> = vec![];
@@ -198,6 +276,40 @@ fn main() {
         let dt = rl.get_frame_time();
         if pause {
             time += dt;
+        }
+        if rl.is_key_released(KeyboardKey::KEY_F3) {
+            debug = !debug;
+        }
+
+        player.left_turn = player.left_turn_original;
+        player.right_turn = player.right_turn_original;
+        player.speed = player.speed_original;
+
+        for partical_emmiter in &mut player.partical_emmiters {
+            partical_emmiter.speed = partical_emmiter.speed_orginal
+        }
+
+        for enemy in &mut enemies {
+            for partical_emmiter in &mut enemy.partical_emmiters {
+                partical_emmiter.speed = partical_emmiter.speed_orginal
+            }
+        }
+
+        for damage in &player.damage {
+            let mut health = 0.0;
+            let mut total_health = 0.0;
+            for src in &damage.src {
+                health += player.parts[*src].health;
+                total_health += player.parts[*src].starting_health;
+            }
+            let value = health / total_health;
+            match damage.des {
+                PartMod::Partical => player.partical_emmiters[damage.index].speed *= value,
+                PartMod::Gun => player.bullet_emmiters[damage.index].bullet_interval *= value,
+                PartMod::TurnLeft => player.left_turn *= value,
+                PartMod::TurnRight => player.right_turn *= value,
+                PartMod::Speed => player.speed *= value,
+            }
         }
 
         let screenwidth = rl.get_screen_width();
@@ -227,6 +339,7 @@ fn main() {
                         pos: Vector2::zero(),
                         location: Vector2 { x: 0.0, y: -13.0 },
                         vel: Vector2::zero(),
+                        speed_orginal:400.0,
                         size: 5.0,
                         shape: ParticalShape::Square,
                         starting_color: Color {
@@ -244,6 +357,7 @@ fn main() {
                         duration: 1.0,
                         partical_interval: 1.0 / 400.0,
                         time,
+                        speed: 0.0,
                     }],
                     bullet_emmiters: vec![],
                 });
@@ -252,25 +366,18 @@ fn main() {
         }
         if pause {
             if rl.is_key_down(KeyboardKey::KEY_A) {
-                player.dir = angletovector(
-                    vectortoangle(player.dir)
-                        - (PLAYERTURNSPEED.to_radians() * (player.parts[1].health / 2.0)
-                            / (player.parts[0].health / 2.0)
-                            * dt),
-                );
+                player.dir =
+                    angletovector(vectortoangle(player.dir) - (player.left_turn.to_radians() * dt));
             }
             if rl.is_key_down(KeyboardKey::KEY_D) {
                 player.dir = angletovector(
-                    vectortoangle(player.dir)
-                        + (PLAYERTURNSPEED.to_radians() * (player.parts[0].health / 2.0)
-                            / (player.parts[1].health / 2.0)
-                            * dt),
+                    vectortoangle(player.dir) + (player.right_turn.to_radians() * dt),
                 );
             }
         }
         if pause {
             player.vel += player.dir.normalized()
-                * (PLAYERSPEED * ((player.parts[0].health + player.parts[1].health) / 4.0)
+                * (player.speed
                     - (player.vel.length()
                         * (2.0 + (player.vel.normalized().dot(player.dir) - 1.0))
                         / 2.0))
@@ -295,7 +402,7 @@ fn main() {
                     vectortoangle(player.dir) - std::f32::consts::PI / 2.0,
                 );
             partical_emmiter.vel = player.vel
-                + -player.dir * 400.0 * (player.parts[1].health / 2.0)
+                + -player.dir * partical_emmiter.speed * (player.parts[1].health / 2.0)
                 + angletovector(
                     rand::thread_rng().gen_range(-std::f32::consts::PI..std::f32::consts::PI),
                 ) * rand::thread_rng().gen_range(20.0..40.0);
@@ -324,29 +431,28 @@ fn main() {
             }
         }
         if pause {
-            for bullet
-            while player.time_since_last_bullet > bullet_rate {
-                if fire {
-                    bullets.push(Bullet {
-                        pos: player.pos + player.dir * 10.0 + right * 14.0,
-                        vel: player.vel + player.dir * 500.0,
-                        size: 5.0,
-                        friendly: true,
-                        duration: 2.0,
-                        time: 0.0,
-                    });
-                    bullets.push(Bullet {
-                        pos: player.pos + player.dir * 10.0 - right * 14.0,
-                        vel: player.vel + player.dir * 500.0,
-                        size: 5.0,
-                        friendly: true,
-                        duration: 2.0,
-                        time: 0.0,
-                    });
+            for bullet_emmiter in &mut player.bullet_emmiters {
+                bullet_emmiter.pos = player.pos
+                    + rotatevector(
+                        bullet_emmiter.location,
+                        vectortoangle(player.dir) - std::f32::consts::PI / 2.0,
+                    );
+                let vel = player.vel + player.dir * 500.0;
+                while bullet_emmiter.time > bullet_emmiter.bullet_interval {
+                    if fire {
+                        bullets.push(Bullet {
+                            pos: bullet_emmiter.pos,
+                            vel: vel,
+                            size: bullet_emmiter.size,
+                            friendly: bullet_emmiter.friendly,
+                            duration: bullet_emmiter.duration,
+                            time: 0.0,
+                        });
+                    }
+                    bullet_emmiter.time -= bullet_emmiter.bullet_interval;
                 }
-                player.time_since_last_bullet -= bullet_rate
+                bullet_emmiter.time += dt;
             }
-            player.time_since_last_bullet += dt;
         }
         for enemy_index in 0..enemies.len() {
             let enemy = &mut enemies[enemy_index];
@@ -386,7 +492,7 @@ fn main() {
                             vectortoangle(enemy.dir) - std::f32::consts::PI / 2.0,
                         );
                     partical_emmiter.vel = enemy.vel
-                        + -enemy.dir * 400.0
+                        + -enemy.dir * partical_emmiter.speed
                         + angletovector(
                             rand::thread_rng()
                                 .gen_range(-std::f32::consts::PI..std::f32::consts::PI),
@@ -475,16 +581,48 @@ fn main() {
 
         let mut d = rl.begin_drawing(&thread);
 
-        d.clear_background(Color::new(51, 51, 51, 255));
+        d.clear_background(Color::new(10, 10, 10, 255));
 
-        let size = 20;
-        for x in 0..=screenwidth / size {
-            let pos = (-player.pos.x % size as f32) as i32 + (x * size);
-            d.draw_line(pos, 0, pos, screenheight, Color::BLACK)
-        }
-        for y in 0..=screenheight / size {
-            let pos = (-player.pos.y % size as f32) as i32 + (y * size);
-            d.draw_line(0, pos, screenwidth, pos, Color::BLACK)
+        //let size = 20;
+        //for x in 0..=screenwidth / size {
+        //    let pos = (-player.pos.x % size as f32) as i32 + (x * size);
+        //    d.draw_line(pos, 0, pos, screenheight, Color::BLACK)
+        //}
+        //for y in 0..=screenheight / size {
+        //    let pos = (-player.pos.y % size as f32) as i32 + (y * size);
+        //    d.draw_line(0, pos, screenwidth, pos, Color::BLACK)
+        //}
+
+        let background_noise =
+            PerlinNoise2D::new(1, 1.0, screenwidth as f64, 1.0, 2.0, (1.0, 1.0), 1.0, 1);
+        let scale = 10;
+        for x in 0..screenwidth / scale {
+            for y in 0..screenheight / scale {
+                let x_screen = x * scale;
+                let y_screen = y * scale;
+                let x_world = x + player.pos.x as i32 / scale;
+                let y_world = y + player.pos.y as i32 / scale;
+                let value = background_noise.get_noise(x_world as f64, y_world as f64);
+                let mut rng = StdRng::seed_from_u64((x_world * y_world) as u64);
+                if rng.gen_range(0.0..1.0).clone() > value {
+                    d.draw_rectangle_v(
+                        Vector2::new(
+                            x_screen as f32 - player.pos.x % scale as f32,
+                            y_screen as f32 - player.pos.y % scale as f32 as f32,
+                        ) + Vector2::new(
+                            rng.gen_range(-scale / 2..scale / 2) as f32,
+                            rng.gen_range(-scale / 2..scale / 2) as f32,
+                        ),
+                        Vector2::new(4.0, 4.0),
+                        Color::new(
+                            (255.0 * value) as u8,
+                            (255.0 * value) as u8,
+                            (255.0 * value) as u8,
+                            (255.0 * value) as u8,
+                        ),
+                    )
+                }
+            }
         }
 
         for partical in &mut particals {
@@ -635,42 +773,72 @@ fn main() {
             Color::WHITE,
         );
 
-        d.draw_text(
-            format!("Pos: {:.2}, {:.2}", player.pos.x, player.pos.y).as_str(),
-            5,
-            10,
-            18,
-            Color::WHITE,
-        );
-        d.draw_text(
-            format!("Vel: {:.1}", player.vel.length()).as_str(),
-            5,
-            30,
-            18,
-            Color::WHITE,
-        );
-        d.draw_text(
-            format!("Dir: {:.2}, {:.2}", player.dir.x, player.dir.y).as_str(),
-            5,
-            50,
-            18,
-            Color::WHITE,
-        );
-        d.draw_text(
-            format!("FPS: {:.2}", 1.0 / dt).as_str(),
-            5,
-            70,
-            18,
-            Color::WHITE,
-        );
-        d.draw_text(
-            format!("Particals: {}", particals.len()).as_str(),
-            5,
-            90,
-            18,
-            Color::WHITE,
-        );
+        if debug {
+            d.draw_text(
+                format!("Pos: {:.2}, {:.2}", player.pos.x, player.pos.y).as_str(),
+                5,
+                10,
+                18,
+                Color::WHITE,
+            );
+            d.draw_text(
+                format!("Target Speed: {:.1}", player.speed).as_str(),
+                5,
+                30,
+                18,
+                Color::WHITE,
+            );
+            d.draw_text(
+                format!("Vel: {:.1}", player.vel.length()).as_str(),
+                5,
+                50,
+                18,
+                Color::WHITE,
+            );
+            d.draw_text(
+                format!("Dir: {:.2}, {:.2}", player.dir.x, player.dir.y).as_str(),
+                5,
+                70,
+                18,
+                Color::WHITE,
+            );
+            d.draw_text(
+                format!("FPS: {:.2}", 1.0 / dt).as_str(),
+                5,
+                90,
+                18,
+                Color::WHITE,
+            );
+            d.draw_text(
+                format!("Particals: {}", particals.len()).as_str(),
+                5,
+                110,
+                18,
+                Color::WHITE,
+            );
+            d.draw_text(
+                format!("Enemys: {}", enemies.len()).as_str(),
+                5,
+                130,
+                18,
+                Color::WHITE,
+            );
+            d.draw_text(
+                format!("Turning Left: {}", player.left_turn).as_str(),
+                5,
+                150,
+                18,
+                Color::WHITE,
+            );
+            d.draw_text(
+                format!("Turning Right: {}", player.right_turn).as_str(),
+                5,
+                170,
+                18,
+                Color::WHITE,
+            );
 
+        }
         for part in &player.parts {
             if part.health <= 0.0 {
                 pause = false
