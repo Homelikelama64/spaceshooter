@@ -1,9 +1,14 @@
-use perlin2d::PerlinNoise2D;
-use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
-use raylib::prelude::*;
 use crate::Player;
+use perlin2d::PerlinNoise2D;
+use rand::prelude::*;
+use raylib::prelude::*;
 
-pub fn draw_background(d:&mut RaylibDrawHandle,player: &Player,screenwidth:i32,screenheight:i32) {
+pub fn draw_background(
+    d: &mut RaylibDrawHandle,
+    player: &Player,
+    screenwidth: i32,
+    screenheight: i32,
+) {
     let scale = 10;
     for x in -1..screenwidth / scale + 2 {
         for y in -1..screenheight / scale + 2 {

@@ -1,11 +1,23 @@
-use enemy::*;
 use background::*;
+use bullets::*;
+use debug::*;
+use enemy::*;
+use player::*;
+use particals::*;
+use ui::*;
 use perlin2d::PerlinNoise2D;
+use powerups::*;
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use raylib::prelude::*;
 
-mod enemy;
+mod ui;
+mod particals;
+mod player;
 mod background;
+mod bullets;
+mod debug;
+mod enemy;
+mod powerups;
 
 #[derive(Clone)]
 struct Player {
@@ -108,6 +120,7 @@ struct Damage {
 struct PowerUp {
     pos: Vector2,
     power_type: PowerUpType,
+    texture: Texture2D,
 }
 
 enum PowerUpType {
@@ -134,9 +147,10 @@ enum ParticalShape {
 fn main() {
     let mut debug = false;
     let (mut rl, thread) = raylib::init()
-        .size(1020, 720)
+        .size(get_monitor_width(0), get_monitor_physical_height(0))
         .title("Space Game")
         .resizable()
+        .fullscreen()
         .build();
     let default_font = rl.get_font_default();
 
@@ -286,6 +300,7 @@ fn main() {
     let mut power_ups: Vec<PowerUp> = vec![PowerUp {
         pos: player.pos,
         power_type: PowerUpType::repair,
+        texture: rl.load_texture(&thread, "Images/Repair.png").unwrap(),
     }];
 
     let basic_enemy_image = rl.load_texture(&thread, "Images/V1Enemy.png").unwrap();
@@ -297,8 +312,6 @@ fn main() {
 
     let ship_image = rl.load_texture(&thread, "Images/V1Ship.png").unwrap();
     let enemy_warning_image = rl.load_texture(&thread, "Images/EnemyWarning.png").unwrap();
-
-    let repair_image = rl.load_texture(&thread, "Images/Repair.png").unwrap();
 
     let mut v1_spawn_interval = 6.0;
     let mut v1_spawn_time = 5.0;
@@ -475,7 +488,7 @@ fn main() {
                             pos: Vector2::zero(),
                             location: Vector2 { x: 0.0, y: 10.0 },
                             size: 5.0,
-                            damage: 0.1,
+                            damage: 0.3,
                             friendly: false,
                             duration: 2.0,
                             bullet_interval: 1.0 / 2.0,
@@ -578,71 +591,8 @@ fn main() {
             }
         }
         if playing {
+            update_bullets(&mut player, &mut bullets, &mut enemies, &mut particals, dt);
             update_enemies(&mut player, &mut enemies, &mut particals, &mut bullets, dt);
-        }
-        if playing {
-            for bullet in &mut bullets {
-                bullet.pos += bullet.vel * dt;
-                bullet.time += dt;
-                if bullet.friendly {
-                    for enemy in &mut enemies {
-                        if bullet.pos.distance_to(enemy.pos) < bullet.size * 2.0 + enemy.size {
-                            enemy.health -=
-                                bullet.damage - bullet.time / bullet.duration * bullet.damage;
-                            particalexplosion(
-                                &mut particals,
-                                bullet.pos,
-                                player.vel,
-                                0.0,
-                                600.0,
-                                50,
-                                Color {
-                                    r: 255,
-                                    g: 0,
-                                    b: 0,
-                                    a: 255,
-                                },
-                                Color {
-                                    r: 255,
-                                    g: 255,
-                                    b: 50,
-                                    a: 0,
-                                },
-                                0.1,
-                            );
-                        }
-                    }
-                }
-                if !bullet.friendly {
-                    for part in &mut player.parts {
-                        if bullet.pos.distance_to(part.pos) < bullet.size * 2.0 + part.size {
-                            part.health -=
-                                bullet.damage - bullet.time / bullet.duration * bullet.damage;
-                            particalexplosion(
-                                &mut particals,
-                                bullet.pos,
-                                player.vel,
-                                0.0,
-                                600.0,
-                                50,
-                                Color {
-                                    r: 140,
-                                    g: 255,
-                                    b: 251,
-                                    a: 255,
-                                },
-                                Color {
-                                    r: 255,
-                                    g: 0,
-                                    b: 50,
-                                    a: 0,
-                                },
-                                0.1,
-                            )
-                        }
-                    }
-                }
-            }
         }
         enemies.retain(|enemy| (enemy.health > 0.0));
         bullets.retain(|bullet| bullet.time < bullet.duration);
@@ -650,354 +600,44 @@ fn main() {
         let mut d = rl.begin_drawing(&thread);
 
         d.clear_background(Color::new(10, 10, 10, 255));
-
-        //let size = 20;
-        //for x in 0..=screenwidth / size {
-        //    let pos = (-player.pos.x % size as f32) as i32 + (x * size);
-        //    d.draw_line(pos, 0, pos, screenheight, Color::BLACK)
-        //}
-        //for y in 0..=screenheight / size {
-        //    let pos = (-player.pos.y % size as f32) as i32 + (y * size);
-        //    d.draw_line(0, pos, screenwidth, pos, Color::BLACK)
-        //}
-
         draw_background(&mut d, &player, screenwidth, screenheight);
-
-
-        for partical in &mut particals {
-            if playing {
-                partical.pos += partical.vel * dt;
-                partical.time += dt;
-            }
-            let lerped_color = colorlerp(
-                partical.starting_color,
-                partical.ending_color,
-                partical.time / partical.duration,
-            );
-            match partical.shape {
-                ParticalShape::Square => d.draw_rectangle_v(
-                    Vector2::new(
-                        partical.pos.x - player.pos.x + screenwidth as f32 / 2.0
-                            - partical.size / 2.0,
-                        partical.pos.y - player.pos.y + screenheight as f32 / 2.0
-                            - partical.size / 2.0,
-                    ),
-                    Vector2::new(partical.size, partical.size),
-                    lerped_color,
-                ),
-                ParticalShape::Circle => d.draw_circle_v(
-                    Vector2::new(
-                        partical.pos.x - player.pos.x + screenwidth as f32 / 2.0,
-                        partical.pos.y - player.pos.y + screenheight as f32 / 2.0,
-                    ),
-                    partical.size / 2.0,
-                    lerped_color,
-                ),
-                ParticalShape::RotSquare => {}
-            }
+        if playing {
+            update_particals(&mut particals, dt);
         }
-        particals.retain(|partical| partical.time < partical.duration);
-
-        for power_up in &mut power_ups {
-            for part_index in 0..player.parts.len() {
-                let part = &mut player.parts[part_index];
-                if part.pos.distance_to(power_up.pos) < part.size + 16.0 {
-                    match power_up.power_type {
-                        PowerUpType::shield => {}
-                        PowerUpType::repair => {
-                            for other_part_index in 0..player.parts.len() {
-                                let Some((part, other_part)) =
-                                    get_2_mut(&mut player.parts, part_index, other_part_index)
-                                else {
-                                    continue;
-                                };
-                                part.health = part.starting_health;
-                                other_part.health = other_part.starting_health;
-                            }
-                            power_up.pos = player.pos
-                                + angletovector(
-                                    rand::thread_rng()
-                                        .gen_range(-std::f32::consts::PI..std::f32::consts::PI),
-                                ) * rand::thread_rng().gen_range(2000.0..2500.0)
-                        }
-                    }
-                }
-            }
-            d.draw_texture_v(
-                &repair_image,
-                power_up.pos - player.pos
-                    + Vector2::new(screenwidth as f32 / 2.0, screenheight as f32 / 2.0)
-                    - Vector2::new(
-                        repair_image.width as f32 / 2.0,
-                        repair_image.height as f32 / 2.0,
-                    ),
-                Color::WHITE,
-            );
-            if player.pos.distance_to(power_up.pos) > 210.0 {
-                d.draw_texture_v(
-                    &repair_image,
-                    (power_up.pos - player.pos).normalized() * 210.0
-                        + Vector2::new(screenwidth as f32 / 2.0, screenheight as f32 / 2.0)
-                        - Vector2::new(
-                            repair_image.width as f32 / 2.0,
-                            repair_image.height as f32 / 2.0,
-                        ),
-                    Color::WHITE,
-                )
-            }
+        draw_particals(&mut d, &player, &mut particals, screenwidth, screenheight);
+        power_ups_update(
+            &mut d,
+            &mut player,
+            &mut power_ups,
+            screenwidth,
+            screenheight,
+        );
+        if debug {
+            draw_debug_player(&mut d, &player, screenwidth, screenheight);
         }
+        draw_player(&mut d, &player, &ship_image, screenwidth, screenheight);
+        draw_enemies(
+            &mut d,
+            &player,
+            &enemies,
+            &basic_enemy_image,
+            &turret_base_enemy_image,
+            &turret_top_enemy_image,
+            &enemy_warning_image,
+            screenwidth,
+            screenheight,
+        );
+        if debug {
+            draw_debug_enemies(&mut d, &player, &enemies, screenwidth, screenheight);
+        }
+        draw_bullets(&mut d, &player, &mut bullets, screenwidth, screenheight);
+        draw_timer(&mut d, time, screenwidth);
+        draw_part_health(&mut d, &player, &default_font, screenwidth);
 
         if debug {
-            for part in &player.parts {
-                d.draw_circle_v(
-                    Vector2::new(screenwidth as f32 / 2.0, screenheight as f32 / 2.0) + part.pos
-                        - player.pos,
-                    part.size,
-                    colorlerp(
-                        Color::GREEN,
-                        Color::BLUE,
-                        1.0 - part.health / part.starting_health,
-                    ),
-                );
-            }
+            draw_debug_text(&mut d, &player, &enemies, &particals, dt);
         }
 
-        let ship_scale = 2.0;
-        d.draw_texture_pro(
-            &ship_image,
-            Rectangle::new(0.0, 0.0, ship_image.width as f32, ship_image.height as f32),
-            Rectangle::new(
-                screenwidth as f32 / 2.0,
-                screenheight as f32 / 2.0,
-                ship_image.width as f32 * ship_scale,
-                ship_image.height as f32 * ship_scale,
-            ),
-            Vector2::new(
-                ship_image.width as f32 / 2.0 * ship_scale,
-                ship_image.height as f32 / 2.0 * ship_scale,
-            ),
-            vectortoangle(player.dir).to_degrees() + 90.0,
-            Color::WHITE,
-        );
-
-        for enemy in &enemies {
-            if debug {
-                d.draw_circle_v(
-                    enemy.pos - player.pos
-                        + Vector2::new(screenwidth as f32 / 2.0, screenheight as f32 / 2.0),
-                    enemy.size,
-                    Color::RED,
-                );
-                d.draw_circle_v(
-                    enemy.targetpos - player.pos
-                        + Vector2::new(screenwidth as f32 / 2.0, screenheight as f32 / 2.0),
-                    10.0,
-                    Color::ORANGE,
-                );
-            }
-            let pos = Vector2::new(
-                enemy.pos.x - player.pos.x + screenwidth as f32 / 2.0,
-                enemy.pos.y - player.pos.y + screenheight as f32 / 2.0,
-            );
-            let mut image: &Texture2D = &basic_enemy_image;
-            if enemy.name == "Basic".to_string() {
-                image = &basic_enemy_image
-            }
-            if enemy.name == "Turret".to_string() {
-                image = &turret_base_enemy_image;
-            }
-
-            d.draw_texture_pro(
-                image,
-                Rectangle::new(0.0, 0.0, image.width as f32, image.height as f32),
-                Rectangle::new(
-                    pos.x,
-                    pos.y,
-                    image.width as f32 * enemy.texture_scale,
-                    image.height as f32 * enemy.texture_scale,
-                ),
-                Vector2::new(
-                    image.width as f32 / 2.0 * enemy.texture_scale,
-                    image.height as f32 / 2.0 * enemy.texture_scale,
-                ),
-                vectortoangle(enemy.dir).to_degrees() + 90.0,
-                Color::WHITE,
-            );
-            if enemy.name == "Turret".to_string() {
-                d.draw_texture_pro(
-                    &turret_top_enemy_image,
-                    Rectangle::new(
-                        0.0,
-                        0.0,
-                        turret_top_enemy_image.width as f32,
-                        turret_top_enemy_image.height as f32,
-                    ),
-                    Rectangle::new(
-                        pos.x,
-                        pos.y + 1.0,
-                        turret_top_enemy_image.width as f32 * enemy.texture_scale,
-                        turret_top_enemy_image.height as f32 * enemy.texture_scale,
-                    ),
-                    Vector2::new(
-                        turret_top_enemy_image.width as f32 / 2.0 * enemy.texture_scale,
-                        turret_top_enemy_image.height as f32 / 2.0 * enemy.texture_scale,
-                    ),
-                    vectortoangle((player.pos - enemy.pos).normalized()).to_degrees() + 90.0,
-                    Color::WHITE,
-                );
-            }
-            if player.pos.distance_to(enemy.pos) > 170.0 {
-                d.draw_texture_v(
-                    &enemy_warning_image,
-                    (enemy.pos - player.pos).normalized() * 170.0
-                        + Vector2::new(screenwidth as f32 / 2.0, screenheight as f32 / 2.0)
-                        - Vector2::new(
-                            enemy_warning_image.width as f32 / 2.0,
-                            enemy_warning_image.height as f32 / 2.0,
-                        ),
-                    Color::WHITE,
-                )
-            }
-        }
-
-        for bullet in &bullets {
-            let bullet_scale = 1.0 - bullet.time / bullet.duration;
-            let bullet_width = bullet.size * bullet_scale;
-            let bullet_length = bullet.size * 2.0 * bullet_scale;
-            let mut color = Color::GREEN;
-            if !bullet.friendly {
-                color = Color::RED
-            }
-            d.draw_rectangle_pro(
-                Rectangle::new(
-                    bullet.pos.x - player.pos.x + screenwidth as f32 / 2.0,
-                    bullet.pos.y - player.pos.y + screenheight as f32 / 2.0,
-                    bullet_width,
-                    bullet_length,
-                ),
-                Vector2::new(bullet_width, bullet_length),
-                vectortoangle(bullet.vel).to_degrees() + 90.0,
-                color,
-            )
-        }
-
-        d.draw_text(
-            format!("Time: {:.2}", time).as_str(),
-            screenwidth / 2 - 50,
-            10,
-            36,
-            Color::WHITE,
-        );
-        let mut longest_name: String = "".to_string();
-        for part in &player.parts {
-            if part.name.len() > longest_name.len() {
-                longest_name = part.name.clone();
-            }
-        }
-
-        for part_index in 0..player.parts.len() {
-            let part = &player.parts[part_index];
-            let font_size = 18.0;
-            let spacing = 5.0;
-            let name_length = longest_name.len() as f32 * spacing;
-            d.draw_text_pro(
-                &default_font,
-                part.name.as_str(),
-                Vector2 {
-                    x: screenwidth as f32 - name_length as f32 * 3.0,
-                    y: 10.0 + (part_index as f32 * (font_size + 15.0)),
-                },
-                Vector2 { x: 0.0, y: 0.0 },
-                0.0,
-                font_size,
-                spacing,
-                Color::WHITE,
-            );
-            d.draw_text_pro(
-                &default_font,
-                ("Health: ".to_string()
-                    + (part.health / part.starting_health * 100.0)
-                        .to_string()
-                        .as_str()
-                    + "%")
-                    .as_str(),
-                Vector2 {
-                    x: screenwidth as f32 - name_length as f32 * 3.0 + 10.0,
-                    y: 28.0 + (part_index as f32 * (font_size + 15.0)),
-                },
-                Vector2 { x: 0.0, y: 0.0 },
-                0.0,
-                font_size / 1.1,
-                spacing / 1.1,
-                Color::WHITE,
-            );
-        }
-
-        if debug {
-            d.draw_text(
-                format!("Pos: {:.2}, {:.2}", player.pos.x, player.pos.y).as_str(),
-                5,
-                10,
-                18,
-                Color::WHITE,
-            );
-            d.draw_text(
-                format!("Target Speed: {:.1}", player.speed).as_str(),
-                5,
-                30,
-                18,
-                Color::WHITE,
-            );
-            d.draw_text(
-                format!("Vel: {:.1}", player.vel.length()).as_str(),
-                5,
-                50,
-                18,
-                Color::WHITE,
-            );
-            d.draw_text(
-                format!("Dir: {:.2}, {:.2}", player.dir.x, player.dir.y).as_str(),
-                5,
-                70,
-                18,
-                Color::WHITE,
-            );
-            d.draw_text(
-                format!("FPS: {:.2}", 1.0 / dt).as_str(),
-                5,
-                90,
-                18,
-                Color::WHITE,
-            );
-            d.draw_text(
-                format!("Particals: {}", particals.len()).as_str(),
-                5,
-                110,
-                18,
-                Color::WHITE,
-            );
-            d.draw_text(
-                format!("Enemys: {}", enemies.len()).as_str(),
-                5,
-                130,
-                18,
-                Color::WHITE,
-            );
-            d.draw_text(
-                format!("Turning Left: {}", player.left_turn).as_str(),
-                5,
-                150,
-                18,
-                Color::WHITE,
-            );
-            d.draw_text(
-                format!("Turning Right: {}", player.right_turn).as_str(),
-                5,
-                170,
-                18,
-                Color::WHITE,
-            );
-        }
         for part in &player.parts {
             if part.health <= 0.0 {
                 playing = false

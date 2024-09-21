@@ -6,6 +6,7 @@ use crate::{
 };
 use raylib::prelude::*;
 
+
 pub fn update_enemies(
     player: &mut Player,
     enemies: &mut Vec<Enemy>,
@@ -86,7 +87,6 @@ pub fn update_enemies(
         for part in &mut player.parts {
             if enemy.pos.distance_to(part.pos) < part.size + enemy.size {
                 enemy.health = -1.0;
-                enemy_dies(enemy.pos, enemy.vel, particals);
                 part.health -= 1.0;
                 particalexplosion(
                     particals,
@@ -151,9 +151,91 @@ pub fn update_enemies(
             if enemy.pos.distance_to(other_enemy.pos) < other_enemy.size + enemy.size {
                 enemy.health = -1.0;
                 other_enemy.health = -1.0;
-                enemy_dies(enemy.pos, enemy.vel, particals);
-                enemy_dies(other_enemy.pos, other_enemy.vel, particals);
             };
+        }
+    }
+    for enemy in enemies {
+        if enemy.health <= 0.0 {
+            enemy_dies(enemy.pos, enemy.vel, particals);
+            println!("enemy died")
+        }
+    }
+}
+
+pub fn draw_enemies(
+    d: &mut RaylibDrawHandle,
+    player: &Player,
+    enemies: &Vec<Enemy>,
+    basic_enemy_image: &Texture2D,
+    turret_base_enemy_image: &Texture2D,
+    turret_top_enemy_image: &Texture2D,
+    enemy_warning_image: &Texture2D,
+    screenwidth: i32,
+    screenheight: i32,
+) {
+    for enemy in enemies {
+        let pos = Vector2::new(
+            enemy.pos.x - player.pos.x + screenwidth as f32 / 2.0,
+            enemy.pos.y - player.pos.y + screenheight as f32 / 2.0,
+        );
+        let mut image: &Texture2D = &basic_enemy_image;
+        if enemy.name == "Basic".to_string() {
+            image = &basic_enemy_image
+        }
+        if enemy.name == "Turret".to_string() {
+            image = &turret_base_enemy_image;
+        }
+
+        d.draw_texture_pro(
+            image,
+            Rectangle::new(0.0, 0.0, image.width as f32, image.height as f32),
+            Rectangle::new(
+                pos.x,
+                pos.y,
+                image.width as f32 * enemy.texture_scale,
+                image.height as f32 * enemy.texture_scale,
+            ),
+            Vector2::new(
+                image.width as f32 / 2.0 * enemy.texture_scale,
+                image.height as f32 / 2.0 * enemy.texture_scale,
+            ),
+            vectortoangle(enemy.dir).to_degrees() + 90.0,
+            Color::WHITE,
+        );
+        if enemy.name == "Turret".to_string() {
+            d.draw_texture_pro(
+                &turret_top_enemy_image,
+                Rectangle::new(
+                    0.0,
+                    0.0,
+                    turret_top_enemy_image.width as f32,
+                    turret_top_enemy_image.height as f32,
+                ),
+                Rectangle::new(
+                    pos.x,
+                    pos.y + 1.0,
+                    turret_top_enemy_image.width as f32 * enemy.texture_scale,
+                    turret_top_enemy_image.height as f32 * enemy.texture_scale,
+                ),
+                Vector2::new(
+                    turret_top_enemy_image.width as f32 / 2.0 * enemy.texture_scale,
+                    turret_top_enemy_image.height as f32 / 2.0 * enemy.texture_scale,
+                ),
+                vectortoangle((player.pos - enemy.pos).normalized()).to_degrees() + 90.0,
+                Color::WHITE,
+            );
+        }
+        if player.pos.distance_to(enemy.pos) > 170.0 {
+            d.draw_texture_v(
+                &enemy_warning_image,
+                (enemy.pos - player.pos).normalized() * 170.0
+                    + Vector2::new(screenwidth as f32 / 2.0, screenheight as f32 / 2.0)
+                    - Vector2::new(
+                        enemy_warning_image.width as f32 / 2.0,
+                        enemy_warning_image.height as f32 / 2.0,
+                    ),
+                Color::WHITE,
+            )
         }
     }
 }
