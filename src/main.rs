@@ -1,11 +1,12 @@
-use std::{borrow::Borrow, time};
-
-use noise::NoiseFn;
+use enemy::*;
+use background::*;
 use perlin2d::PerlinNoise2D;
-use rand::{rngs::StdRng, Rng, SeedableRng};
+use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use raylib::prelude::*;
 
-const PLAYERSPEED: f32 = 250.0;
+mod enemy;
+mod background;
+
 #[derive(Clone)]
 struct Player {
     pos: Vector2,
@@ -29,6 +30,7 @@ struct Part {
     health: f32,
     starting_health: f32,
     size: f32,
+    name: String,
 }
 #[derive(Clone)]
 struct Enemy {
@@ -52,6 +54,7 @@ struct Bullet {
     pos: Vector2,
     vel: Vector2,
     size: f32,
+    damage: f32,
     friendly: bool,
     duration: f32,
     time: f32,
@@ -71,7 +74,7 @@ struct Partical {
 struct ParticalEmitter {
     pos: Vector2,
     location: Vector2,
-    speed_orginal:f32,
+    speed_orginal: f32,
     vel: Vector2,
     size: f32,
     shape: ParticalShape,
@@ -80,7 +83,7 @@ struct ParticalEmitter {
     duration: f32,
     partical_interval: f32,
     time: f32,
-    speed:f32
+    speed: f32,
 }
 
 #[derive(Clone)]
@@ -88,6 +91,7 @@ struct BulletEmitter {
     pos: Vector2,
     location: Vector2,
     size: f32,
+    damage: f32,
     friendly: bool,
     duration: f32,
     bullet_interval: f32,
@@ -99,6 +103,16 @@ struct Damage {
     src: Vec<usize>,
     des: PartMod,
     index: usize,
+}
+
+struct PowerUp {
+    pos: Vector2,
+    power_type: PowerUpType,
+}
+
+enum PowerUpType {
+    shield,
+    repair,
 }
 
 #[derive(Clone)]
@@ -120,10 +134,11 @@ enum ParticalShape {
 fn main() {
     let mut debug = false;
     let (mut rl, thread) = raylib::init()
-        .size(1090, 720)
-        .title("Hello, World")
+        .size(1020, 720)
+        .title("Space Game")
         .resizable()
         .build();
+    let default_font = rl.get_font_default();
 
     let mut player = Player {
         pos: Vector2 { x: 50.0, y: 50.0 },
@@ -136,23 +151,26 @@ fn main() {
             Part {
                 pos: Vector2::zero(),
                 location: Vector2 { x: 17.0, y: -15.0 },
-                health: 2.0,
-                starting_health: 2.0,
+                health: 4.0,
+                starting_health: 4.0,
                 size: 15.0,
+                name: "Left Engine".to_string(),
             },
             Part {
                 pos: Vector2::zero(),
                 location: Vector2 { x: -17.0, y: -15.0 },
-                health: 2.0,
-                starting_health: 2.0,
+                health: 4.0,
+                starting_health: 4.0,
                 size: 15.0,
+                name: "Right Engine".to_string(),
             },
             Part {
                 pos: Vector2::zero(),
                 location: Vector2 { x: 0.0, y: 15.0 },
-                health: 1.0,
-                starting_health: 2.0,
+                health: 3.0,
+                starting_health: 3.0,
                 size: 20.0,
+                name: "Main Body".to_string(),
             },
         ],
         damage: vec![
@@ -167,7 +185,7 @@ fn main() {
                 index: 0,
             },
             Damage {
-                src: vec![0,1],
+                src: vec![0, 1, 2],
                 des: PartMod::Speed,
                 index: 0,
             },
@@ -187,7 +205,7 @@ fn main() {
                 pos: Vector2::zero(),
                 location: Vector2::new(21.0, -26.0),
                 vel: Vector2::zero(),
-                speed_orginal:400.0,
+                speed_orginal: 200.0,
                 size: 5.0,
                 shape: ParticalShape::Square,
                 starting_color: Color {
@@ -211,7 +229,7 @@ fn main() {
                 pos: Vector2::zero(),
                 location: Vector2::new(-21.0, -26.0),
                 vel: Vector2::zero(),
-                speed_orginal:400.0,
+                speed_orginal: 200.0,
                 size: 5.0,
                 shape: ParticalShape::Square,
                 starting_color: Color {
@@ -237,6 +255,7 @@ fn main() {
                 pos: Vector2::zero(),
                 location: Vector2 { x: 17.0, y: 13.0 },
                 size: 5.0,
+                damage: 2.0,
                 friendly: true,
                 duration: 2.0,
                 bullet_interval: 1.0 / 7.5,
@@ -246,6 +265,7 @@ fn main() {
                 pos: Vector2::zero(),
                 location: Vector2 { x: -17.0, y: 13.0 },
                 size: 5.0,
+                damage: 2.0,
                 friendly: true,
                 duration: 2.0,
                 bullet_interval: 1.0 / 5.0,
@@ -263,22 +283,43 @@ fn main() {
 
     let mut particals: Vec<Partical> = vec![];
 
+    let mut power_ups: Vec<PowerUp> = vec![PowerUp {
+        pos: player.pos,
+        power_type: PowerUpType::repair,
+    }];
+
     let basic_enemy_image = rl.load_texture(&thread, "Images/V1Enemy.png").unwrap();
+
+    let turret_base_enemy_image = rl.load_texture(&thread, "Images/V2EnemyBase.png").unwrap();
+    let turret_top_enemy_image = rl
+        .load_texture(&thread, "Images/V2EnemyCannon.png")
+        .unwrap();
+
     let ship_image = rl.load_texture(&thread, "Images/V1Ship.png").unwrap();
     let enemy_warning_image = rl.load_texture(&thread, "Images/EnemyWarning.png").unwrap();
 
-    let mut v1_spawn_interval = 6.0;
-    let mut v1_spawn_time = 0.0;
+    let repair_image = rl.load_texture(&thread, "Images/Repair.png").unwrap();
 
-    let mut pause: bool = true;
+    let mut v1_spawn_interval = 6.0;
+    let mut v1_spawn_time = 5.0;
+    let mut v1_double_spawn_chance = 0.5;
+
+    let mut v2_spawn_interval = 16.0;
+    let mut v2_spawn_time = 0.0;
+    let mut v2_double_spawn_chance = 0.1;
+
+    let mut playing: bool = true;
     let mut time = 0.0;
     while !rl.window_should_close() {
         let dt = rl.get_frame_time();
-        if pause {
+        if playing {
             time += dt;
         }
         if rl.is_key_released(KeyboardKey::KEY_F3) {
             debug = !debug;
+        }
+        if rl.is_key_down(KeyboardKey::KEY_SPACE) {
+            playing = !playing;
         }
 
         player.left_turn = player.left_turn_original;
@@ -314,57 +355,138 @@ fn main() {
 
         let screenwidth = rl.get_screen_width();
         let screenheight = rl.get_screen_height();
-        if pause {
+        if playing {
             while v1_spawn_time > v1_spawn_interval {
-                v1_spawn_time -= v1_spawn_interval;
-                v1_spawn_interval = f32::max(v1_spawn_interval - 0.1, 1.0);
-                enemies.push(Enemy {
-                    name: format!("Basic"),
-                    pos: player.pos
-                        + angletovector(
+                let mut amount = 1;
+                while rand::thread_rng().gen_range(0.0..1.0)
+                    < v1_double_spawn_chance / (amount * amount) as f32
+                {
+                    amount += 1;
+                }
+                v1_double_spawn_chance = f32::min(v1_double_spawn_chance + 0.05, 0.7);
+                for _ in 0..amount {
+                    v1_spawn_time -= v1_spawn_interval;
+                    v1_spawn_interval = f32::max(v1_spawn_interval - 0.1, 1.0);
+                    enemies.push(Enemy {
+                        name: format!("Basic"),
+                        pos: player.pos
+                            + angletovector(
+                                rand::thread_rng()
+                                    .gen_range(-std::f32::consts::PI..std::f32::consts::PI),
+                            ) * 2000.0,
+                        vel: Vector2 { x: 0.0, y: 0.0 },
+                        dir: angletovector(
                             rand::thread_rng()
                                 .gen_range(-std::f32::consts::PI..std::f32::consts::PI),
-                        ) * 2000.0,
-                    vel: Vector2 { x: 0.0, y: 0.0 },
-                    dir: Vector2 { x: 0.0, y: 1.0 },
-                    targetpos: Vector2 { x: 200.0, y: 200.0 },
-                    speed: 600.0,
-                    turningspeed: 100.0,
-                    predictive: false,
-                    texture_scale: 1.0,
-                    friction: 1.0,
-                    size: 16.0,
-                    health: 1.0,
-                    partical_emmiters: vec![ParticalEmitter {
-                        pos: Vector2::zero(),
-                        location: Vector2 { x: 0.0, y: -13.0 },
-                        vel: Vector2::zero(),
-                        speed_orginal:400.0,
-                        size: 5.0,
-                        shape: ParticalShape::Square,
-                        starting_color: Color {
-                            r: 255,
-                            g: 255,
-                            b: 0,
-                            a: 255,
-                        },
-                        ending_color: Color {
-                            r: 255,
-                            g: 0,
-                            b: 50,
-                            a: 0,
-                        },
-                        duration: 1.0,
-                        partical_interval: 1.0 / 400.0,
-                        time,
-                        speed: 0.0,
-                    }],
-                    bullet_emmiters: vec![],
-                });
+                        ),
+                        targetpos: Vector2 { x: 200.0, y: 200.0 },
+                        speed: 600.0,
+                        turningspeed: 100.0,
+                        predictive: false,
+                        texture_scale: 1.0,
+                        friction: 1.0,
+                        size: 16.0,
+                        health: 1.0,
+                        partical_emmiters: vec![ParticalEmitter {
+                            pos: Vector2::zero(),
+                            location: Vector2 { x: 0.0, y: -13.0 },
+                            vel: Vector2::zero(),
+                            speed_orginal: 400.0,
+                            size: 5.0,
+                            shape: ParticalShape::Square,
+                            starting_color: Color {
+                                r: 255,
+                                g: 255,
+                                b: 0,
+                                a: 255,
+                            },
+                            ending_color: Color {
+                                r: 255,
+                                g: 0,
+                                b: 50,
+                                a: 0,
+                            },
+                            duration: 1.0,
+                            partical_interval: 1.0 / 400.0,
+                            time,
+                            speed: 0.0,
+                        }],
+                        bullet_emmiters: vec![],
+                    });
+                }
             }
             v1_spawn_time += dt;
+            while v2_spawn_time > v2_spawn_interval {
+                let mut amount = 1;
+                while rand::thread_rng().gen_range(0.0..1.0)
+                    < v2_double_spawn_chance / (amount * amount) as f32
+                {
+                    amount += 1;
+                }
+                v2_double_spawn_chance = f32::min(v2_double_spawn_chance + 0.05, 0.5);
+                for _ in 0..amount {
+                    v2_spawn_time -= v2_spawn_interval;
+                    v2_spawn_interval = f32::max(v2_spawn_interval - 0.1, 7.0);
+                    enemies.push(Enemy {
+                        name: format!("Turret"),
+                        pos: player.pos
+                            + angletovector(
+                                rand::thread_rng()
+                                    .gen_range(-std::f32::consts::PI..std::f32::consts::PI),
+                            ) * 2000.0,
+                        vel: Vector2 { x: 0.0, y: 0.0 },
+                        dir: angletovector(
+                            rand::thread_rng()
+                                .gen_range(-std::f32::consts::PI..std::f32::consts::PI),
+                        ),
+                        targetpos: Vector2 { x: 200.0, y: 200.0 },
+                        speed: 500.0,
+                        turningspeed: 100.0,
+                        predictive: false,
+                        texture_scale: 1.5,
+                        friction: 1.0,
+                        size: 24.0,
+                        health: 7.0,
+                        partical_emmiters: vec![ParticalEmitter {
+                            pos: Vector2::zero(),
+                            location: Vector2 { x: 0.0, y: -15.0 },
+                            vel: Vector2::zero(),
+                            speed_orginal: 800.0,
+                            size: 10.0,
+                            shape: ParticalShape::Square,
+                            starting_color: Color {
+                                r: 255,
+                                g: 255,
+                                b: 0,
+                                a: 255,
+                            },
+                            ending_color: Color {
+                                r: 255,
+                                g: 0,
+                                b: 50,
+                                a: 0,
+                            },
+                            duration: 1.0,
+                            partical_interval: 1.0 / 400.0,
+                            time,
+                            speed: 0.0,
+                        }],
+                        bullet_emmiters: vec![BulletEmitter {
+                            pos: Vector2::zero(),
+                            location: Vector2 { x: 0.0, y: 10.0 },
+                            size: 5.0,
+                            damage: 0.1,
+                            friendly: false,
+                            duration: 2.0,
+                            bullet_interval: 1.0 / 2.0,
+                            time: 0.0,
+                        }],
+                    });
+                }
+            }
+            v2_spawn_time += dt;
         }
-        if pause {
+        if playing {
             if rl.is_key_down(KeyboardKey::KEY_A) {
                 player.dir =
                     angletovector(vectortoangle(player.dir) - (player.left_turn.to_radians() * dt));
@@ -375,7 +497,7 @@ fn main() {
                 );
             }
         }
-        if pause {
+        if playing {
             player.vel += player.dir.normalized()
                 * (player.speed
                     - (player.vel.length()
@@ -384,7 +506,7 @@ fn main() {
                 * dt;
         }
         let right = rotatevector(player.dir, std::f32::consts::PI / 2.0);
-        if pause {
+        if playing {
             player.vel -= right * (right.dot(player.vel)) * 1.0 * dt;
             player.pos += player.vel * dt;
         }
@@ -406,7 +528,7 @@ fn main() {
                 + angletovector(
                     rand::thread_rng().gen_range(-std::f32::consts::PI..std::f32::consts::PI),
                 ) * rand::thread_rng().gen_range(20.0..40.0);
-            if pause {
+            if playing {
                 while partical_emmiter.time > partical_emmiter.partical_interval {
                     particals.push(Partical {
                         pos: partical_emmiter.pos,
@@ -430,7 +552,7 @@ fn main() {
                 fire = true
             }
         }
-        if pause {
+        if playing {
             for bullet_emmiter in &mut player.bullet_emmiters {
                 bullet_emmiter.pos = player.pos
                     + rotatevector(
@@ -444,6 +566,7 @@ fn main() {
                             pos: bullet_emmiter.pos,
                             vel: vel,
                             size: bullet_emmiter.size,
+                            damage: bullet_emmiter.damage,
                             friendly: bullet_emmiter.friendly,
                             duration: bullet_emmiter.duration,
                             time: 0.0,
@@ -454,129 +577,74 @@ fn main() {
                 bullet_emmiter.time += dt;
             }
         }
-        for enemy_index in 0..enemies.len() {
-            let enemy = &mut enemies[enemy_index];
-            if enemy.predictive {
-                let mut time_to_reach = 0.0;
-                for _ in 0..10 {
-                    enemy.targetpos = player.pos + player.dir * player.vel.length() * time_to_reach;
-                    time_to_reach = enemy.targetpos.distance_to(enemy.pos) / enemy.vel.length();
-                }
-            } else {
-                enemy.targetpos = player.pos
-            }
-            let right = rotatevector(enemy.dir, std::f32::consts::PI / 2.0);
-            if right.dot(enemy.targetpos - enemy.pos) > 0.0 {
-                enemy.dir =
-                    angletovector(vectortoangle(enemy.dir) + (enemy.turningspeed.to_radians() * dt))
-            } else {
-                enemy.dir =
-                    angletovector(vectortoangle(enemy.dir) - (enemy.turningspeed.to_radians() * dt))
-            }
-            if pause {
-                enemy.vel += enemy.dir.normalized()
-                    * (enemy.speed
-                        - (enemy.vel.length()
-                            * (2.0 + (enemy.vel.normalized().dot(enemy.dir) - 1.0))
-                            / 2.0))
-                    * dt;
-
-                enemy.vel -= right * (right.dot(enemy.vel)) * enemy.friction * dt;
-
-                enemy.pos += enemy.vel * dt;
-
-                for partical_emmiter in &mut enemy.partical_emmiters {
-                    partical_emmiter.pos = enemy.pos
-                        + rotatevector(
-                            partical_emmiter.location,
-                            vectortoangle(enemy.dir) - std::f32::consts::PI / 2.0,
-                        );
-                    partical_emmiter.vel = enemy.vel
-                        + -enemy.dir * partical_emmiter.speed
-                        + angletovector(
-                            rand::thread_rng()
-                                .gen_range(-std::f32::consts::PI..std::f32::consts::PI),
-                        ) * rand::thread_rng().gen_range(20.0..40.0);
-                    if pause {
-                        while partical_emmiter.time > partical_emmiter.partical_interval {
-                            particals.push(Partical {
-                                pos: partical_emmiter.pos,
-                                vel: partical_emmiter.vel,
-                                size: partical_emmiter.size,
-                                shape: partical_emmiter.shape.clone(),
-                                starting_color: partical_emmiter.starting_color,
-                                ending_color: partical_emmiter.ending_color,
-                                duration: partical_emmiter.duration,
-                                time: 0.0,
-                            });
-                            partical_emmiter.time -= partical_emmiter.partical_interval;
+        if playing {
+            update_enemies(&mut player, &mut enemies, &mut particals, &mut bullets, dt);
+        }
+        if playing {
+            for bullet in &mut bullets {
+                bullet.pos += bullet.vel * dt;
+                bullet.time += dt;
+                if bullet.friendly {
+                    for enemy in &mut enemies {
+                        if bullet.pos.distance_to(enemy.pos) < bullet.size * 2.0 + enemy.size {
+                            enemy.health -=
+                                bullet.damage - bullet.time / bullet.duration * bullet.damage;
+                            particalexplosion(
+                                &mut particals,
+                                bullet.pos,
+                                player.vel,
+                                0.0,
+                                600.0,
+                                50,
+                                Color {
+                                    r: 255,
+                                    g: 0,
+                                    b: 0,
+                                    a: 255,
+                                },
+                                Color {
+                                    r: 255,
+                                    g: 255,
+                                    b: 50,
+                                    a: 0,
+                                },
+                                0.1,
+                            );
                         }
-                        partical_emmiter.time += dt;
                     }
                 }
-                for part in &mut player.parts {
-                    if enemy.pos.distance_to(part.pos) < part.size + enemy.size {
-                        enemy.health = -1.0;
-                        particals = enemy_dies(enemy.pos, enemy.vel, particals);
-                        part.health -= 1.0;
-                        particals = particalexplosion(
-                            particals,
-                            part.pos,
-                            player.vel,
-                            0.0,
-                            300.0,
-                            500,
-                            Color {
-                                r: 140,
-                                g: 255,
-                                b: 251,
-                                a: 255,
-                            },
-                            Color {
-                                r: 255,
-                                g: 0,
-                                b: 50,
-                                a: 0,
-                            },
-                            1.0,
-                        );
+                if !bullet.friendly {
+                    for part in &mut player.parts {
+                        if bullet.pos.distance_to(part.pos) < bullet.size * 2.0 + part.size {
+                            part.health -=
+                                bullet.damage - bullet.time / bullet.duration * bullet.damage;
+                            particalexplosion(
+                                &mut particals,
+                                bullet.pos,
+                                player.vel,
+                                0.0,
+                                600.0,
+                                50,
+                                Color {
+                                    r: 140,
+                                    g: 255,
+                                    b: 251,
+                                    a: 255,
+                                },
+                                Color {
+                                    r: 255,
+                                    g: 0,
+                                    b: 50,
+                                    a: 0,
+                                },
+                                0.1,
+                            )
+                        }
                     }
-                }
-            }
-            bullets.retain(|bullet| {
-                bullet.pos.distance_to(enemy.pos) > bullet.size * 2.0 + enemy.size
-            });
-            if pause {
-                for other_enemy_index in 0..enemies.len() {
-                    let Some((enemy, other_enemy)) =
-                        get_2_mut(&mut enemies, enemy_index, other_enemy_index)
-                    else {
-                        continue;
-                    };
-                    if enemy.pos.distance_to(other_enemy.pos) < other_enemy.size + enemy.size {
-                        enemy.health = -1.0;
-                        other_enemy.health = -1.0;
-                        particals = enemy_dies(enemy.pos, enemy.vel, particals);
-                        particals = enemy_dies(other_enemy.pos, other_enemy.vel, particals);
-                    };
                 }
             }
         }
         enemies.retain(|enemy| (enemy.health > 0.0));
-        if pause {
-            for bullet in &mut bullets {
-                bullet.pos += bullet.vel * dt;
-                bullet.time += dt;
-                for enemy in &mut enemies {
-                    if bullet.pos.distance_to(enemy.pos) < bullet.size * 2.0 + enemy.size {
-                        enemy.health -= 1.0 - bullet.time / bullet.duration;
-                        if enemy.health <= 0.0 {
-                            particals = enemy_dies(enemy.pos, enemy.vel, particals)
-                        }
-                    }
-                }
-            }
-        }
         bullets.retain(|bullet| bullet.time < bullet.duration);
 
         let mut d = rl.begin_drawing(&thread);
@@ -593,40 +661,11 @@ fn main() {
         //    d.draw_line(0, pos, screenwidth, pos, Color::BLACK)
         //}
 
-        let background_noise =
-            PerlinNoise2D::new(1, 1.0, screenwidth as f64, 1.0, 2.0, (1.0, 1.0), 1.0, 1);
-        let scale = 10;
-        for x in 0..screenwidth / scale {
-            for y in 0..screenheight / scale {
-                let x_screen = x * scale;
-                let y_screen = y * scale;
-                let x_world = x + player.pos.x as i32 / scale;
-                let y_world = y + player.pos.y as i32 / scale;
-                let value = background_noise.get_noise(x_world as f64, y_world as f64);
-                let mut rng = StdRng::seed_from_u64((x_world * y_world) as u64);
-                if rng.gen_range(0.0..1.0).clone() > value {
-                    d.draw_rectangle_v(
-                        Vector2::new(
-                            x_screen as f32 - player.pos.x % scale as f32,
-                            y_screen as f32 - player.pos.y % scale as f32 as f32,
-                        ) + Vector2::new(
-                            rng.gen_range(-scale / 2..scale / 2) as f32,
-                            rng.gen_range(-scale / 2..scale / 2) as f32,
-                        ),
-                        Vector2::new(4.0, 4.0),
-                        Color::new(
-                            (255.0 * value) as u8,
-                            (255.0 * value) as u8,
-                            (255.0 * value) as u8,
-                            (255.0 * value) as u8,
-                        ),
-                    )
-                }
-            }
-        }
+        draw_background(&mut d, &player, screenwidth, screenheight);
+
 
         for partical in &mut particals {
-            if pause {
+            if playing {
                 partical.pos += partical.vel * dt;
                 partical.time += dt;
             }
@@ -659,13 +698,54 @@ fn main() {
         }
         particals.retain(|partical| partical.time < partical.duration);
 
-        //if debug {
-        //    d.draw_circle_v(
-        //        Vector2::new(screenwidth as f32 / 2.0, screenheight as f32 / 2.0),
-        //        PLAYERSIZE,
-        //        Color::GREEN,
-        //    );
-        //}
+        for power_up in &mut power_ups {
+            for part_index in 0..player.parts.len() {
+                let part = &mut player.parts[part_index];
+                if part.pos.distance_to(power_up.pos) < part.size + 16.0 {
+                    match power_up.power_type {
+                        PowerUpType::shield => {}
+                        PowerUpType::repair => {
+                            for other_part_index in 0..player.parts.len() {
+                                let Some((part, other_part)) =
+                                    get_2_mut(&mut player.parts, part_index, other_part_index)
+                                else {
+                                    continue;
+                                };
+                                part.health = part.starting_health;
+                                other_part.health = other_part.starting_health;
+                            }
+                            power_up.pos = player.pos
+                                + angletovector(
+                                    rand::thread_rng()
+                                        .gen_range(-std::f32::consts::PI..std::f32::consts::PI),
+                                ) * rand::thread_rng().gen_range(2000.0..2500.0)
+                        }
+                    }
+                }
+            }
+            d.draw_texture_v(
+                &repair_image,
+                power_up.pos - player.pos
+                    + Vector2::new(screenwidth as f32 / 2.0, screenheight as f32 / 2.0)
+                    - Vector2::new(
+                        repair_image.width as f32 / 2.0,
+                        repair_image.height as f32 / 2.0,
+                    ),
+                Color::WHITE,
+            );
+            if player.pos.distance_to(power_up.pos) > 210.0 {
+                d.draw_texture_v(
+                    &repair_image,
+                    (power_up.pos - player.pos).normalized() * 210.0
+                        + Vector2::new(screenwidth as f32 / 2.0, screenheight as f32 / 2.0)
+                        - Vector2::new(
+                            repair_image.width as f32 / 2.0,
+                            repair_image.height as f32 / 2.0,
+                        ),
+                    Color::WHITE,
+                )
+            }
+        }
 
         if debug {
             for part in &player.parts {
@@ -673,7 +753,11 @@ fn main() {
                     Vector2::new(screenwidth as f32 / 2.0, screenheight as f32 / 2.0) + part.pos
                         - player.pos,
                     part.size,
-                    Color::GREEN,
+                    colorlerp(
+                        Color::GREEN,
+                        Color::BLUE,
+                        1.0 - part.health / part.starting_health,
+                    ),
                 );
             }
         }
@@ -704,32 +788,64 @@ fn main() {
                     enemy.size,
                     Color::RED,
                 );
+                d.draw_circle_v(
+                    enemy.targetpos - player.pos
+                        + Vector2::new(screenwidth as f32 / 2.0, screenheight as f32 / 2.0),
+                    10.0,
+                    Color::ORANGE,
+                );
             }
             let pos = Vector2::new(
                 enemy.pos.x - player.pos.x + screenwidth as f32 / 2.0,
                 enemy.pos.y - player.pos.y + screenheight as f32 / 2.0,
             );
+            let mut image: &Texture2D = &basic_enemy_image;
+            if enemy.name == "Basic".to_string() {
+                image = &basic_enemy_image
+            }
+            if enemy.name == "Turret".to_string() {
+                image = &turret_base_enemy_image;
+            }
+
             d.draw_texture_pro(
-                &basic_enemy_image,
-                Rectangle::new(
-                    0.0,
-                    0.0,
-                    basic_enemy_image.width as f32,
-                    basic_enemy_image.height as f32,
-                ),
+                image,
+                Rectangle::new(0.0, 0.0, image.width as f32, image.height as f32),
                 Rectangle::new(
                     pos.x,
                     pos.y,
-                    basic_enemy_image.width as f32 * enemy.texture_scale,
-                    basic_enemy_image.height as f32 * enemy.texture_scale,
+                    image.width as f32 * enemy.texture_scale,
+                    image.height as f32 * enemy.texture_scale,
                 ),
                 Vector2::new(
-                    basic_enemy_image.width as f32 / 2.0 * enemy.texture_scale,
-                    basic_enemy_image.height as f32 / 2.0 * enemy.texture_scale,
+                    image.width as f32 / 2.0 * enemy.texture_scale,
+                    image.height as f32 / 2.0 * enemy.texture_scale,
                 ),
                 vectortoangle(enemy.dir).to_degrees() + 90.0,
                 Color::WHITE,
             );
+            if enemy.name == "Turret".to_string() {
+                d.draw_texture_pro(
+                    &turret_top_enemy_image,
+                    Rectangle::new(
+                        0.0,
+                        0.0,
+                        turret_top_enemy_image.width as f32,
+                        turret_top_enemy_image.height as f32,
+                    ),
+                    Rectangle::new(
+                        pos.x,
+                        pos.y + 1.0,
+                        turret_top_enemy_image.width as f32 * enemy.texture_scale,
+                        turret_top_enemy_image.height as f32 * enemy.texture_scale,
+                    ),
+                    Vector2::new(
+                        turret_top_enemy_image.width as f32 / 2.0 * enemy.texture_scale,
+                        turret_top_enemy_image.height as f32 / 2.0 * enemy.texture_scale,
+                    ),
+                    vectortoangle((player.pos - enemy.pos).normalized()).to_degrees() + 90.0,
+                    Color::WHITE,
+                );
+            }
             if player.pos.distance_to(enemy.pos) > 170.0 {
                 d.draw_texture_v(
                     &enemy_warning_image,
@@ -772,6 +888,50 @@ fn main() {
             36,
             Color::WHITE,
         );
+        let mut longest_name: String = "".to_string();
+        for part in &player.parts {
+            if part.name.len() > longest_name.len() {
+                longest_name = part.name.clone();
+            }
+        }
+
+        for part_index in 0..player.parts.len() {
+            let part = &player.parts[part_index];
+            let font_size = 18.0;
+            let spacing = 5.0;
+            let name_length = longest_name.len() as f32 * spacing;
+            d.draw_text_pro(
+                &default_font,
+                part.name.as_str(),
+                Vector2 {
+                    x: screenwidth as f32 - name_length as f32 * 3.0,
+                    y: 10.0 + (part_index as f32 * (font_size + 15.0)),
+                },
+                Vector2 { x: 0.0, y: 0.0 },
+                0.0,
+                font_size,
+                spacing,
+                Color::WHITE,
+            );
+            d.draw_text_pro(
+                &default_font,
+                ("Health: ".to_string()
+                    + (part.health / part.starting_health * 100.0)
+                        .to_string()
+                        .as_str()
+                    + "%")
+                    .as_str(),
+                Vector2 {
+                    x: screenwidth as f32 - name_length as f32 * 3.0 + 10.0,
+                    y: 28.0 + (part_index as f32 * (font_size + 15.0)),
+                },
+                Vector2 { x: 0.0, y: 0.0 },
+                0.0,
+                font_size / 1.1,
+                spacing / 1.1,
+                Color::WHITE,
+            );
+        }
 
         if debug {
             d.draw_text(
@@ -837,11 +997,10 @@ fn main() {
                 18,
                 Color::WHITE,
             );
-
         }
         for part in &player.parts {
             if part.health <= 0.0 {
-                pause = false
+                playing = false
             }
         }
     }
@@ -879,8 +1038,8 @@ fn rotatevector(vector: Vector2, angle: f32) -> Vector2 {
     }
 }
 
-fn enemy_dies(pos: Vector2, vel: Vector2, particals: Vec<Partical>) -> Vec<Partical> {
-    return particalexplosion(
+fn enemy_dies(pos: Vector2, vel: Vector2, particals: &mut Vec<Partical>) {
+    particalexplosion(
         particals,
         pos,
         vel,
@@ -904,7 +1063,7 @@ fn enemy_dies(pos: Vector2, vel: Vector2, particals: Vec<Partical>) -> Vec<Parti
 }
 
 fn particalexplosion(
-    mut particals: Vec<Partical>,
+    particals: &mut Vec<Partical>,
     pos: Vector2,
     vel: Vector2,
     force_min: f32,
@@ -913,7 +1072,7 @@ fn particalexplosion(
     start_color: Color,
     ending_color: Color,
     duration: f32,
-) -> Vec<Partical> {
+) {
     for _ in 0..amount {
         particals.push(Partical {
             pos: pos,
@@ -929,5 +1088,4 @@ fn particalexplosion(
             time: 0.0,
         });
     }
-    return particals;
 }
