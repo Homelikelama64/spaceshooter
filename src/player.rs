@@ -17,18 +17,18 @@ pub fn init_player() -> Player {
         parts: vec![
             Part {
                 pos: Vector2::zero(),
-                location: Vector2 { x: 17.0, y: -15.0 },
+                location: Vector2 { x: 12.0, y: -13.0 },
                 health: 4.0,
                 starting_health: 4.0,
-                size: 15.0,
+                size: 17.0,
                 name: "Left Engine".to_string(),
             },
             Part {
                 pos: Vector2::zero(),
-                location: Vector2 { x: -17.0, y: -15.0 },
+                location: Vector2 { x: -12.0, y: -13.0 },
                 health: 4.0,
                 starting_health: 4.0,
-                size: 15.0,
+                size: 17.0,
                 name: "Right Engine".to_string(),
             },
             Part {
@@ -46,30 +46,35 @@ pub fn init_player() -> Player {
                 des: PartMod::TurnLeft,
                 index: 0,
                 damage_type: DamageType::Mult,
+                scale: 1.0,
             },
             Damage {
                 src: vec![0],
                 des: PartMod::TurnRight,
                 index: 0,
                 damage_type: DamageType::Mult,
+                scale: 1.0,
             },
             Damage {
                 src: vec![0, 1, 2],
                 des: PartMod::Speed,
                 index: 0,
                 damage_type: DamageType::Mult,
+                scale: 1.0,
             },
             Damage {
                 src: vec![0],
                 des: PartMod::Partical,
                 index: 0,
                 damage_type: DamageType::Mult,
+                scale: 1.0,
             },
             Damage {
                 src: vec![1],
                 des: PartMod::Partical,
                 index: 1,
                 damage_type: DamageType::Mult,
+                scale: 1.0,
             },
         ],
         partical_emmiters: vec![
@@ -186,18 +191,26 @@ pub fn update_player(
         let value = health / total_health;
         match damage.damage_type {
             DamageType::Mult => match damage.des {
-                PartMod::Partical => player.partical_emmiters[damage.index].speed *= value,
-                PartMod::Gun => player.bullet_emmiters[damage.index].bullet_interval *= value,
-                PartMod::TurnLeft => player.left_turn *= value,
-                PartMod::TurnRight => player.right_turn *= value,
-                PartMod::Speed => player.speed *= value,
+                PartMod::Partical => {
+                    player.partical_emmiters[damage.index].speed *= value * damage.scale
+                }
+                PartMod::Gun => {
+                    player.bullet_emmiters[damage.index].bullet_interval *= value * damage.scale
+                }
+                PartMod::TurnLeft => player.left_turn *= value * damage.scale,
+                PartMod::TurnRight => player.right_turn *= value * damage.scale,
+                PartMod::Speed => player.speed *= value * damage.scale,
             },
             DamageType::Div => match damage.des {
-                PartMod::Partical => player.partical_emmiters[damage.index].speed /= value,
-                PartMod::Gun => player.bullet_emmiters[damage.index].bullet_interval /= value,
-                PartMod::TurnLeft => player.left_turn /= value,
-                PartMod::TurnRight => player.right_turn /= value,
-                PartMod::Speed => player.speed /= value,
+                PartMod::Partical => {
+                    player.partical_emmiters[damage.index].speed /= value * damage.scale
+                }
+                PartMod::Gun => {
+                    player.bullet_emmiters[damage.index].bullet_interval /= value * damage.scale
+                }
+                PartMod::TurnLeft => player.left_turn /= value * damage.scale,
+                PartMod::TurnRight => player.right_turn /= value * damage.scale,
+                PartMod::Speed => player.speed /= value * damage.scale,
             },
         }
     }

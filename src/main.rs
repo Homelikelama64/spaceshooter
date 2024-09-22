@@ -124,6 +124,7 @@ struct Damage {
     des: PartMod,
     index: usize,
     damage_type: DamageType,
+    scale: f32,
 }
 
 struct PowerUp {
@@ -135,6 +136,7 @@ struct PowerUp {
 struct Wave {
     interval: f32,
     min_interval: f32,
+    interval_delta:f32,
     double_spawn_chance: f32,
     max_double_spawn_chance: f32,
     time: f32,
@@ -171,10 +173,10 @@ enum ParticalShape {
 fn main() {
     let mut debug = false;
     let (mut rl, thread) = raylib::init()
-        .size(get_monitor_width(0), get_monitor_physical_height(0))
+        .size(1020, 720)
         .title("Space Game")
         .resizable()
-        .fullscreen()
+        //.fullscreen()
         .build();
     rl.set_exit_key(None);
     let default_font = rl.get_font_default();

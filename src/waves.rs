@@ -15,6 +15,7 @@ pub fn init_waves(
         Wave {
             interval: 6.0,
             min_interval: 1.0,
+            interval_delta: 0.3,
             double_spawn_chance: 0.5,
             max_double_spawn_chance: 0.7,
             time: 0.0,
@@ -64,6 +65,7 @@ pub fn init_waves(
         Wave {
             interval: 16.0,
             min_interval: 7.0,
+            interval_delta: 0.3,
             double_spawn_chance: 0.1,
             max_double_spawn_chance: 0.5,
             time: 0.0,
@@ -138,6 +140,8 @@ pub fn update_waves(waves: &mut Vec<Wave>, player: &Player, enemies: &mut Vec<En
                 wave.double_spawn_chance + 0.05,
                 wave.max_double_spawn_chance,
             );
+            wave.interval = f32::max(wave.interval + wave.interval_delta, wave.min_interval);
+
             for _ in 0..amount {
                 let mut enemy = wave.enemy.clone();
                 enemy.pos = player.pos
