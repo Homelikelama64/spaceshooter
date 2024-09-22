@@ -1,4 +1,3 @@
-use rand::Rng;
 
 use crate::{colorlerp, Partical, ParticalShape, Player};
 use raylib::prelude::*;
