@@ -1,6 +1,6 @@
 use raylib::prelude::*;
 
-use crate::{player, Player};
+use crate::Player;
 
 pub fn draw_timer(d: &mut RaylibDrawHandle, time: f32, screenwidth: i32) {
     d.draw_text(

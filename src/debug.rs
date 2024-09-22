@@ -1,6 +1,6 @@
 use raylib::prelude::*;
 
-use crate::{colorlerp, enemy, Enemy, Partical, Player};
+use crate::{colorlerp, Enemy, Partical, Player};
 
 pub fn draw_debug_text(
     d: &mut RaylibDrawHandle,

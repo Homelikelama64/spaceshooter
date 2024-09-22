@@ -8,14 +8,15 @@ pub fn power_ups_update(
     player: &mut Player,
     power_ups: &mut Vec<PowerUp>,
     screenwidth: i32,
-    screenheight: i32,) {
+    screenheight: i32,
+) {
     for power_up in power_ups {
         for part_index in 0..player.parts.len() {
             let part = &mut player.parts[part_index];
             if part.pos.distance_to(power_up.pos) < part.size + 16.0 {
                 match power_up.power_type {
-                    PowerUpType::shield => {}
-                    PowerUpType::repair => {
+                    PowerUpType::Shield => {}
+                    PowerUpType::Repair => {
                         for other_part_index in 0..player.parts.len() {
                             let Some((part, other_part)) =
                                 get_2_mut(&mut player.parts, part_index, other_part_index)

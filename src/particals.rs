@@ -1,12 +1,9 @@
 use rand::Rng;
 
-use crate::{
-    angletovector, colorlerp, enemy_dies, get_2_mut, particalexplosion, rotatevector,
-    vectortoangle, Bullet, Enemy, Partical, ParticalShape, Player,
-};
+use crate::{colorlerp, Partical, ParticalShape, Player};
 use raylib::prelude::*;
 
-pub fn update_particals(particals: &mut Vec<Partical>,dt:f32) {
+pub fn update_particals(particals: &mut Vec<Partical>, dt: f32) {
     for partical in &mut *particals {
         partical.pos += partical.vel * dt;
         partical.time += dt;

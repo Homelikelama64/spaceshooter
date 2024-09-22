@@ -1,11 +1,11 @@
 use rand::Rng;
+use slotmap::SlotMap;
 
 use crate::{
     angletovector, enemy_dies, get_2_mut, particalexplosion, rotatevector, vectortoangle, Bullet,
-    Enemy, Partical, Player,
+    Enemy, Partical, Player, TextureID,
 };
 use raylib::prelude::*;
-
 
 pub fn update_enemies(
     player: &mut Player,
@@ -157,7 +157,6 @@ pub fn update_enemies(
     for enemy in enemies {
         if enemy.health <= 0.0 {
             enemy_dies(enemy.pos, enemy.vel, particals);
-            println!("enemy died")
         }
     }
 }
@@ -166,9 +165,7 @@ pub fn draw_enemies(
     d: &mut RaylibDrawHandle,
     player: &Player,
     enemies: &Vec<Enemy>,
-    basic_enemy_image: &Texture2D,
-    turret_base_enemy_image: &Texture2D,
-    turret_top_enemy_image: &Texture2D,
+    textures: &SlotMap<TextureID, Texture2D>,
     enemy_warning_image: &Texture2D,
     screenwidth: i32,
     screenheight: i32,
@@ -178,13 +175,7 @@ pub fn draw_enemies(
             enemy.pos.x - player.pos.x + screenwidth as f32 / 2.0,
             enemy.pos.y - player.pos.y + screenheight as f32 / 2.0,
         );
-        let mut image: &Texture2D = &basic_enemy_image;
-        if enemy.name == "Basic".to_string() {
-            image = &basic_enemy_image
-        }
-        if enemy.name == "Turret".to_string() {
-            image = &turret_base_enemy_image;
-        }
+        let image: &Texture2D = &textures[enemy.texture_id];
 
         d.draw_texture_pro(
             image,
@@ -204,22 +195,22 @@ pub fn draw_enemies(
         );
         if enemy.name == "Turret".to_string() {
             d.draw_texture_pro(
-                &turret_top_enemy_image,
+                &textures[enemy.extra_texture_ids[0]],
                 Rectangle::new(
                     0.0,
                     0.0,
-                    turret_top_enemy_image.width as f32,
-                    turret_top_enemy_image.height as f32,
+                    textures[enemy.extra_texture_ids[0]].width as f32,
+                    textures[enemy.extra_texture_ids[0]].height as f32,
                 ),
                 Rectangle::new(
                     pos.x,
                     pos.y + 1.0,
-                    turret_top_enemy_image.width as f32 * enemy.texture_scale,
-                    turret_top_enemy_image.height as f32 * enemy.texture_scale,
+                    textures[enemy.extra_texture_ids[0]].width as f32 * enemy.texture_scale,
+                    textures[enemy.extra_texture_ids[0]].height as f32 * enemy.texture_scale,
                 ),
                 Vector2::new(
-                    turret_top_enemy_image.width as f32 / 2.0 * enemy.texture_scale,
-                    turret_top_enemy_image.height as f32 / 2.0 * enemy.texture_scale,
+                    textures[enemy.extra_texture_ids[0]].width as f32 / 2.0 * enemy.texture_scale,
+                    textures[enemy.extra_texture_ids[0]].height as f32 / 2.0 * enemy.texture_scale,
                 ),
                 vectortoangle((player.pos - enemy.pos).normalized()).to_degrees() + 90.0,
                 Color::WHITE,
